@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+  <title>Linux Agent - Troubleshooting UI</title>
+  <!-- Load Inter font for UI and JetBrains Mono for terminal feel -->
+  <link href="https://fonts.googleapis.com" rel="preconnect" />
+  <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"
+    rel="stylesheet" />
+  <style data-purpose="layout-variables">
+    :root {
+      --bg-deep: #0d1117;
+      --bg-panel: #161b22;
+      --bg-card: #0d1117;
+      --bg-input: #0d1117;
+      --border-color: #30363d;
+      --text-main: #c9d1d9;
+      --text-dim: #8b949e;
+      --accent-green: #3fb950;
+      --accent-green-glow: rgba(63, 185, 80, 0.2);
+      --accent-blue: #58a6ff;
+      --sidebar-width: 260px;
+      --right-panel-width: 320px;
+      --header-height: 50px;
+      --scrollbar-track: rgba(63, 185, 80, 0.12);
+      --scrollbar-thumb: rgba(63, 185, 80, 0.55);
+      --scrollbar-thumb-hover: rgba(63, 185, 80, 0.8);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      scrollbar-width: thin;
+      scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+    }
+
+    *::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    *::-webkit-scrollbar-track {
+      background: var(--scrollbar-track);
+      border-radius: 999px;
+    }
+
+    *::-webkit-scrollbar-thumb {
+      background: var(--scrollbar-thumb);
+      border-radius: 999px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+
+    *::-webkit-scrollbar-thumb:hover {
+      background: var(--scrollbar-thumb-hover);
+    }
+
+    body {
+      background-color: var(--bg-deep);
+      color: var(--text-main);
+      font-family: 'Inter', sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    /* Container to simulate a desktop app window */
+    #app-window {
+      width: 100vw;
+      height: 100vh;
+      background-color: var(--bg-deep);
+      display: flex;
+      flex-direction: column;
+      border: 1px solid var(--border-color);
+    }
+  </style>
+  <style data-purpose="navigation-sidebar">
+    /* BEGIN: SidebarNavigation */
+    .sidebar {
+      width: var(--sidebar-width);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+      flex-shrink: 0;
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 24px;
+      color: var(--accent-green);
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+      font-size: 1.1rem;
+    }
+
+    .btn-new-session {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border: 1px solid var(--accent-green);
+      color: var(--accent-green);
+      padding: 10px 14px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-size: 0.9rem;
+      margin-bottom: 24px;
+      transition: background 0.2s;
+    }
+
+    .btn-new-session:hover {
+      background: var(--accent-green-glow);
+    }
+
+    .nav-list {
+      list-style: none;
+      margin-bottom: 40px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px;
+      color: var(--text-dim);
+      cursor: pointer;
+      border-radius: 6px;
+      margin-bottom: 4px;
+      font-size: 0.95rem;
+    }
+
+    .nav-item:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-main);
+    }
+
+    .nav-item svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    /* System Overview Section */
+    .system-overview {
+      margin-top: auto;
+      font-size: 0.8rem;
+    }
+
+    .section-title {
+      color: var(--text-dim);
+      text-transform: uppercase;
+      font-size: 0.7rem;
+      letter-spacing: 1px;
+      margin-bottom: 15px;
+      display: block;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .stat-label {
+      color: var(--text-dim);
+    }
+
+    .stat-value {
+      color: var(--text-main);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .agent-status {
+      margin-top: 30px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border-color);
+      font-size: 0.85rem;
+      color: var(--accent-green);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      background-color: var(--accent-green);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--accent-green);
+    }
+
+    /* END: SidebarNavigation */
+  </style>
+  <style data-purpose="chat-main-area">
+    /* BEGIN: MainChatArea */
+    .main-container {
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .top-bar {
+      height: var(--header-height);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+    }
+
+    .session-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.85rem;
+    }
+
+    .tag-active {
+      background: rgba(63, 185, 80, 0.15);
+      color: var(--accent-green);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 600;
+    }
+
+    .window-controls {
+      display: flex;
+      gap: 15px;
+    }
+
+    .control-btn {
+      color: var(--text-dim);
+      cursor: pointer;
+    }
+
+    .chat-scroll-area {
+      flex-grow: 1;
+      padding: 30px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 30px;
+    }
+
+    /* Message Styling */
+    .message-block {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-width: 900px;
+    }
+
+    .message-header {
+      display: flex;
+      justify-content: space-between;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+    }
+
+    .user-label {
+      color: var(--accent-blue);
+    }
+
+    .agent-label {
+      color: var(--accent-green);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .timestamp {
+      color: var(--text-dim);
+    }
+
+    .message-content {
+      line-height: 1.6;
+      font-size: 0.95rem;
+    }
+
+    /* Diagnostic Cards */
+    .card-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 15px;
+    }
+
+    .card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 500;
+    }
+
+    .card-header.gathering {
+      color: var(--accent-green);
+    }
+
+    .card-header.diagnosis {
+      color: var(--accent-green);
+    }
+
+    .card-header.executing {
+      color: var(--accent-green);
+    }
+
+    .card-body {
+      font-size: 0.9rem;
+      color: var(--text-dim);
+      padding-left: 32px;
+    }
+
+    .inner-step {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .inner-step svg {
+      width: 14px;
+      height: 14px;
+      color: var(--accent-green);
+    }
+
+    .card-footer {
+      text-align: right;
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Input Area */
+    .input-wrapper {
+      padding: 20px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .chat-input-container {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+
+    .chat-input-container input {
+      background: transparent;
+      border: none;
+      color: var(--text-main);
+      flex-grow: 1;
+      outline: none;
+      font-family: 'Inter', sans-serif;
+    }
+
+    .chat-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .action-btn {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      color: var(--text-dim);
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .action-btn:hover {
+      border-color: var(--text-dim);
+      color: var(--text-main);
+    }
+
+    .btn-stop {
+      margin-left: auto;
+      border-color: #f85149;
+      color: #f85149;
+    }
+
+    .btn-stop:hover {
+      background: rgba(248, 81, 73, 0.1);
+      color: #f85149;
+    }
+
+    /* END: MainChatArea */
+  </style>
+  <style data-purpose="right-panel">
+    /* BEGIN: InspectorPanel */
+    .right-panel {
+      width: var(--right-panel-width);
+      border-left: 1px solid var(--border-color);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 30px;
+      overflow-y: auto;
+    }
+
+    .model-selector {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: var(--text-main);
+    }
+
+    .plan-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .plan-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.85rem;
+      color: var(--text-dim);
+    }
+
+    .plan-item.active {
+      color: var(--accent-green);
+    }
+
+    .plan-item.done {
+      color: var(--text-main);
+    }
+
+    .plan-item svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    /* Terminal/Command Output */
+    .command-output-wrapper {
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .terminal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .live-tag {
+      font-size: 0.65rem;
+      color: var(--accent-green);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .terminal-window {
+      background: #000;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      line-height: 1.5;
+      color: var(--text-dim);
+      flex-grow: 1;
+      overflow-y: auto;
+    }
+
+    .terminal-cmd {
+      color: var(--text-main);
+      margin-bottom: 2px;
+    }
+
+    .terminal-res {
+      color: var(--text-dim);
+      margin-bottom: 12px;
+    }
+
+    .terminal-time {
+      color: #57606a;
+      display: block;
+      font-size: 0.7rem;
+    }
+
+    .btn-full-terminal {
+      width: 100%;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 10px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      margin-top: 15px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* END: InspectorPanel */
+  </style>
+</head>
+
+<body>
+  <div data-purpose="application-root" id="app-window">
+    <div style="display: flex; height: 100%;">
+      <!-- BEGIN: Sidebar -->
+      <aside class="sidebar">
+        <div class="logo-container">
+          <svg fill="none" height="20" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+            stroke-width="2" viewbox="0 0 24 24" width="20" xmlns="http://www.w3.org/2000/svg">
+            <path d="m18 16 4-4-4-4"></path>
+            <path d="m6 8-4 4 4 4"></path>
+            <path d="m14.5 4-5 16"></path>
+          </svg>
+          <span>LINUX AGENT</span>
+        </div>
+        <p style="font-size: 0.7rem; color: var(--text-dim); margin-top: -15px; margin-bottom: 25px;">Autonomous Linux
+          Troubleshooter</p>
+        <a class="btn-new-session" href="#">
+          <span>New Session</span>
+          <svg fill="none" height="16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+            stroke-width="2" viewbox="0 0 24 24" width="16" xmlns="http://www.w3.org/2000/svg">
+            <path d="M5 12h14"></path>
+            <path d="M12 5v14"></path>
+          </svg>
+        </a>
+        <ul class="nav-list">
+          <li class="nav-item">
+            <svg fill="none" height="24" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+              stroke-width="2" viewbox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+            Sessions
+          </li>
+          <li class="nav-item">
+            <svg fill="none" height="24" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+              stroke-width="2" viewbox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg">
+              <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"></path>
+              <path d="M8 7h6"></path>
+              <path d="M8 11h8"></path>
+            </svg>
+            Knowledge Base
+          </li>
+          <li class="nav-item">
+            <svg fill="none" height="24" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+              stroke-width="2" viewbox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z">
+              </path>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+            Settings
+          </li>
+          <li class="nav-item">
+            <svg fill="none" height="24" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+              stroke-width="2" viewbox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 2v10"></path>
+              <path d="M18.4 6.6a9 9 0 1 1-12.77.04"></path>
+            </svg>
+            Models
+          </li>
+        </ul>
+        <div class="system-overview">
+          <span class="section-title">System Overview</span>
+          <div class="stat-row"><span class="stat-label">Distro</span><span class="stat-value">Ubuntu 24.04 LTS</span>
+          </div>
+          <div class="stat-row"><span class="stat-label">Kernel</span><span class="stat-value">6.8.0-31-generic</span>
+          </div>
+          <div class="stat-row"><span class="stat-label">Uptime</span><span class="stat-value">2h 14m</span></div>
+          <div class="stat-row"><span class="stat-label">Shell</span><span class="stat-value">bash 5.2.21</span></div>
+          <div class="stat-row"><span class="stat-label">Hostname</span><span class="stat-value">mylinux</span></div>
+          <div class="stat-row"><span class="stat-label">CPU</span><span class="stat-value">Intel i3-1005G1</span></div>
+          <div class="stat-row"><span class="stat-label">Memory</span><span class="stat-value">4.1 / 11.5 GB
+              (36%)</span></div>
+          <div class="stat-row"><span class="stat-label">Disk (/)</span><span class="stat-value">38.2 / 116.2 GB
+              (33%)</span></div>
+        </div>
+        <div class="agent-status">
+          <div class="status-dot"></div>
+          Agent: Online
+        </div>
+        <div style="display: flex; gap: 8px; margin-top: 20px;">
+          <div class="action-btn" style="flex: 1; justify-content: center;"><svg fill="none" height="16"
+              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24"
+              width="16" xmlns="http://www.w3.org/2000/svg">
+              <rect height="4" rx="1" ry="1" width="8" x="8" y="2"></rect>
+              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+              <path d="M9 14h6"></path>
+              <path d="M9 10h6"></path>
+              <path d="M9 18h6"></path>
+            </svg></div>
+          <div class="action-btn" style="flex: 1; justify-content: center;"><svg fill="none" height="16"
+              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24"
+              width="16" xmlns="http://www.w3.org/2000/svg">
+              <path d="M22 12h-4l-3 9L9 3l-3 9H2"></path>
+            </svg></div>
+          <div class="action-btn" style="flex: 1; justify-content: center;"><svg fill="none" height="16"
+              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24"
+              width="16" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"></path>
+            </svg></div>
+        </div>
+      </aside>
+      <!-- END: Sidebar -->
+      <!-- BEGIN: Main Area -->
+      <main class="main-container">
+        <div class="top-bar">
+          <div class="session-info">
+            <svg fill="none" height="16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+              stroke-width="2" viewbox="0 0 24 24" width="16" xmlns="http://www.w3.org/2000/svg">
+              <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+            <span>Session 2025-05-27 21:42</span>
+            <span class="tag-active">ACTIVE</span>
+          </div>
+          
+        </div>
+        <div id="chatMessages" class="chat-scroll-area">
+          <div class="message-block">
+            <div class="message-header">
+              <span class="agent-label">
+                <svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+                  stroke-width="2" viewbox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg">
+                  <path d="m16 18 6-6-6-6"></path>
+                  <path d="m8 6-6 6 6 6"></path>
+                  <path d="m14.5 4-5 16"></path>
+                </svg>
+                LINUX AGENT
+              </span>
+              <span class="timestamp">now</span>
+            </div>
+            <div class="message-content">
+              I’m ready to help with Linux troubleshooting. Ask me anything.
+            </div>
+          </div>
+        </div>
+        <div class="input-wrapper">
+          <div class="chat-input-container">
+            <input id="chatInput" placeholder="Ask me to fix your Linux issue..." type="text" />
+            <button id="sendButton" type="button" style="background: transparent; border: none; color: var(--accent-green); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px;">
+              <svg fill="none" height="20" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+                stroke-width="2" viewbox="0 0 24 24" width="20" xmlns="http://www.w3.org/2000/svg">
+                <line x1="22" x2="11" y1="2" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+            </button>
+          </div>
+          <div class="chat-actions">
+            <button class="action-btn"><svg fill="none" height="14" stroke="currentColor" stroke-linecap="round"
+                stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14"
+                xmlns="http://www.w3.org/2000/svg">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" x2="12" y1="15" y2="3"></line>
+              </svg> Attach Log</button>
+            <button class="action-btn"><svg fill="none" height="14" stroke="currentColor" stroke-linecap="round"
+                stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14"
+                xmlns="http://www.w3.org/2000/svg">
+                <path d="M21 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-2"></path>
+                <path d="M16 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z"></path>
+                <path d="M3 7h18"></path>
+              </svg> Select Context</button>
+            <button class="action-btn btn-stop"><svg fill="none" height="14" stroke="currentColor"
+                stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14"
+                xmlns="http://www.w3.org/2000/svg">
+                <rect height="12" rx="2" width="12" x="6" y="6"></rect>
+              </svg> Stop Agent</button>
+          </div>
+        </div>
+      </main>
+      <!-- END: Main Area -->
+      <!-- BEGIN: Right Inspector -->
+      <aside class="right-panel">
+        <div class="model-selector">
+          <span>Model: <strong style="font-weight: 500;">gemma3-tools:4b</strong></span>
+          <svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+            stroke-width="2" viewbox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg">
+            <path d="m6 9 6 6 6-6"></path>
+          </svg>
+        </div>
+        <div class="plan-steps">
+          <span class="section-title">PLAN / STEPS</span>
+          <div class="plan-item done">
+            <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z">
+              </path>
+            </svg>
+            <span>1. Gather system information</span>
+            <svg fill="currentColor" style="margin-left: auto; color: var(--accent-green);" viewbox="0 0 24 24">
+              <circle cx="12" cy="12" opacity="0.2" r="10"></circle>
+              <path d="m9 12 2 2 4-4" fill="none" stroke="currentColor" stroke-width="2"></path>
+            </svg>
+          </div>
+          <div class="plan-item done">
+            <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a2 2 0 0 1-2.83-2.83l-3.94 3.6Z">
+              </path>
+              <path d="m14 14 6.29 6.29a1 1 0 0 0 1.42 0l.3-.3a1 1 0 0 0 0-1.42L15.7 12.3"></path>
+              <path d="m7 7-4 4a2 2 0 0 0 0 2.83l3.17 3.17a2 2 0 0 0 2.83 0l4-4"></path>
+            </svg>
+            <span>2. Diagnose the issue</span>
+            <svg fill="currentColor" style="margin-left: auto; color: var(--accent-green);" viewbox="0 0 24 24">
+              <circle cx="12" cy="12" opacity="0.2" r="10"></circle>
+              <path d="m9 12 2 2 4-4" fill="none" stroke="currentColor" stroke-width="2"></path>
+            </svg>
+          </div>
+          <div class="plan-item done">
+            <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 2v8"></path>
+              <path d="m4.93 10.93 1.41 1.41"></path>
+              <path d="M2 18h2"></path>
+              <path d="M20 18h2"></path>
+              <path d="m19.07 10.93-1.41 1.41"></path>
+              <path d="M22 22H2"></path>
+              <path d="m16 6-4 4-4-4"></path>
+            </svg>
+            <span>3. Propose a fix</span>
+            <svg fill="currentColor" style="margin-left: auto; color: var(--accent-green);" viewbox="0 0 24 24">
+              <circle cx="12" cy="12" opacity="0.2" r="10"></circle>
+              <path d="m9 12 2 2 4-4" fill="none" stroke="currentColor" stroke-width="2"></path>
+            </svg>
+          </div>
+          <div class="plan-item active">
+            <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+            <span>4. Execute fix</span>
+            <svg fill="none" stroke="currentColor" stroke-width="1" style="margin-left: auto; color: var(--text-dim);"
+              viewbox="0 0 24 24">
+              <circle cx="12" cy="12" r="10"></circle>
+            </svg>
+          </div>
+          <div class="plan-item">
+            <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M12 2v4"></path>
+              <path d="M12 18v4"></path>
+              <path d="M4.93 4.93l2.83 2.83"></path>
+              <path d="M16.24 16.24l2.83 2.83"></path>
+              <path d="M2 12h4"></path>
+              <path d="M18 12h4"></path>
+              <path d="M4.93 19.07l2.83-2.83"></path>
+              <path d="M16.24 7.76l2.83-2.83"></path>
+            </svg>
+            <span>5. Verify the result</span>
+            <svg fill="none" stroke="currentColor" stroke-width="1" style="margin-left: auto; color: var(--text-dim);"
+              viewbox="0 0 24 24">
+              <circle cx="12" cy="12" r="10"></circle>
+            </svg>
+          </div>
+          <div class="plan-item">
+            <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+              <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+            <span>6. Complete</span>
+            <svg fill="none" stroke="currentColor" stroke-width="1" style="margin-left: auto; color: var(--text-dim);"
+              viewbox="0 0 24 24">
+              <circle cx="12" cy="12" r="10"></circle>
+            </svg>
+          </div>
+        </div>
+        <div class="command-output-wrapper">
+          <div class="terminal-header">
+            <span class="section-title" style="margin-bottom: 0;">COMMAND OUTPUT</span>
+            <div class="live-tag">
+              <div class="status-dot" style="width: 5px; height: 5px;"></div>
+              Live
+            </div>
+          </div>
+          <div class="terminal-window">
+            <div class="terminal-cmd">$ rfkill list wifi</div>
+            <div class="terminal-res">Soft blocked: yes<br />Hard blocked: no</div>
+            <span class="terminal-time">21:42:24</span>
+            <div class="terminal-cmd">$ rfkill unblock wifi</div>
+            <span class="terminal-time">21:42:26</span>
+            <div class="terminal-cmd">$ nmcli device wifi list</div>
+            <div class="terminal-res">
+              <span style="color: var(--accent-green);">* 3C:BB:FD:12:34:56 MyHomeWiFi</span><br />
+                80:2A:A8:11:22:33 OtherWiFi
+            </div>
+            <span class="terminal-time">21:42:28</span>
+            <div class="terminal-cmd">$ nmcli device wifi connect MyHomeWiFi...</div>
+            <div class="terminal-res">Device 'wlan0' successfully activated.</div>
+            <span class="terminal-time">21:42:30</span>
+            <div class="terminal-cmd">$ ping -c 3 8.8.8.8</div>
+            <div class="terminal-res">3 packets transmitted, 3 received, 0% loss</div>
+            <span class="terminal-time">21:42:33</span>
+          </div>
+          <button class="btn-full-terminal">
+            Open Full Terminal
+            <svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+              stroke-width="2" viewbox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+              <polyline points="15 3 21 3 21 9"></polyline>
+              <line x1="10" x2="21" y1="14" y2="3"></line>
+            </svg>
+          </button>
+        </div>
+      </aside>
+      <!-- END: Right Inspector -->
+    </div>
+  </div>
+  <script data-purpose="simple-interactivity">
+    const chatInput = document.getElementById('chatInput');
+    const chatMessages = document.getElementById('chatMessages');
+    const sendButton = document.getElementById('sendButton');
+
+    function formatTime() {
+      return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function appendMessage(role, text) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'message-block';
+
+      const header = document.createElement('div');
+      header.className = 'message-header';
+
+      const label = document.createElement('span');
+      label.className = role === 'user' ? 'user-label' : 'agent-label';
+      if (role === 'user') {
+        label.textContent = 'YOU';
+      } else {
+        label.innerHTML = `
+          <svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+            stroke-width="2" viewbox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg">
+            <path d="m16 18 6-6-6-6"></path>
+            <path d="m8 6-6 6 6 6"></path>
+            <path d="m14.5 4-5 16"></path>
+          </svg>
+          LINUX AGENT`;
+      }
+
+      const timestamp = document.createElement('span');
+      timestamp.className = 'timestamp';
+      timestamp.textContent = formatTime();
+
+      header.appendChild(label);
+      header.appendChild(timestamp);
+
+      const content = document.createElement('div');
+      content.className = 'message-content';
+      content.textContent = text;
+
+      wrapper.appendChild(header);
+      wrapper.appendChild(content);
+      chatMessages.appendChild(wrapper);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      return wrapper;
+    }
+
+    function setBusy(isBusy) {
+      chatInput.disabled = isBusy;
+      sendButton.disabled = isBusy;
+      sendButton.style.opacity = isBusy ? '0.6' : '1';
+      sendButton.style.cursor = isBusy ? 'wait' : 'pointer';
+    }
+
+    async function sendMessage() {
+      const text = chatInput.value.trim();
+      if (!text) {
+        return;
+      }
+
+      appendMessage('user', text);
+      chatInput.value = '';
+      setBusy(true);
+      const agentMessage = appendMessage('agent', 'Thinking...');
+
+      try {
+        if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.respond !== 'function') {
+          throw new Error('The desktop API is not available.');
+        }
+
+        const response = await window.pywebview.api.respond(text);
+        agentMessage.querySelector('.message-content').textContent = response || 'No response received.';
+      } catch (error) {
+        agentMessage.querySelector('.message-content').textContent = `Sorry, the agent could not respond: ${error.message || error}`;
+      } finally {
+        setBusy(false);
+        chatInput.focus();
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+    }
+
+    chatInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        sendMessage();
+      }
+    });
+
+    sendButton.addEventListener('click', sendMessage);
+
+    document.querySelectorAll('.control-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (btn.innerText === '✕') {
+          if (confirm('Close application?')) window.close();
+        }
+      });
+    });
+
+  </script>
+</body>
+
+</html>
