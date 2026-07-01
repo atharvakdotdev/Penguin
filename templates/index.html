@@ -401,6 +401,65 @@
       color: var(--text-main);
     }
 
+    .btn-allow-command {
+      background: rgba(63, 185, 80, 0.15);
+      border: 1px solid var(--accent-green);
+      color: var(--accent-green);
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+      margin-top: 10px;
+    }
+
+    .btn-allow-command:hover {
+      background: rgba(63, 185, 80, 0.25);
+      border-color: var(--accent-green);
+    }
+
+    .btn-allow-command:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .command-container {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .command-display {
+      font-family: 'JetBrains Mono', monospace;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 10px;
+      border-radius: 4px;
+      color: var(--text-main);
+      border-left: 3px solid var(--accent-green);
+      word-break: break-all;
+    }
+
+    .command-status {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .command-output {
+      font-family: 'JetBrains Mono', monospace;
+      background: #000;
+      padding: 10px;
+      border-radius: 4px;
+      color: var(--text-dim);
+      font-size: 0.8rem;
+      max-height: 200px;
+      overflow-y: auto;
+      margin-top: 8px;
+    }
+
     .btn-stop {
       margin-left: auto;
       border-color: #f85149;
@@ -503,17 +562,21 @@
     .terminal-cmd {
       color: var(--text-main);
       margin-bottom: 2px;
+      font-weight: 500;
     }
 
     .terminal-res {
-      color: var(--text-dim);
+      color: #3fb950;
       margin-bottom: 12px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
     }
 
     .terminal-time {
       color: #57606a;
       display: block;
       font-size: 0.7rem;
+      margin-bottom: 8px;
     }
 
     .btn-full-terminal {
@@ -849,9 +912,142 @@
     const chatInput = document.getElementById('chatInput');
     const chatMessages = document.getElementById('chatMessages');
     const sendButton = document.getElementById('sendButton');
+    const terminalWindow = document.querySelector('.terminal-window');
+
+    let currentCommand = null;
+    let awaitingNextStep = false;
 
     function formatTime() {
       return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function addTerminalOutput(command, output, isError = false) {
+      const cmdDiv = document.createElement('div');
+      cmdDiv.className = 'terminal-cmd';
+      cmdDiv.textContent = `$ ${command}`;
+      terminalWindow.appendChild(cmdDiv);
+
+      if (output) {
+        const resDiv = document.createElement('div');
+        resDiv.className = isError ? 'terminal-res' : 'terminal-res';
+        if (isError) {
+          resDiv.style.color = '#f85149';
+        }
+        resDiv.textContent = output;
+        terminalWindow.appendChild(resDiv);
+      }
+
+      const timeDiv = document.createElement('span');
+      timeDiv.className = 'terminal-time';
+      timeDiv.textContent = formatTime();
+      terminalWindow.appendChild(timeDiv);
+
+      terminalWindow.scrollTop = terminalWindow.scrollHeight;
+    }
+
+    async function proceedToNextStep() {
+      if (awaitingNextStep && currentCommand) {
+        awaitingNextStep = false;
+        setBusy(true);
+        const agentMessage = appendMessage('agent', 'Analyzing...');
+
+        try {
+          if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.respond !== 'function') {
+            throw new Error('The desktop API is not available.');
+          }
+
+          const response = await window.pywebview.api.respond("continue with next step");
+          const agentContent = agentMessage.querySelector('.message-content');
+          
+          if (response && typeof response === 'object') {
+            agentContent.innerHTML = '';
+            if (response.reply) {
+              const reply = document.createElement('div');
+              reply.textContent = response.reply;
+              agentContent.appendChild(reply);
+            }
+            
+            if (Array.isArray(response.steps) && response.steps.length) {
+              const list = document.createElement('div');
+              list.className = 'card-list';
+              const step = response.steps[0];
+              
+              const card = document.createElement('div');
+              card.className = 'card';
+              const title = document.createElement('div');
+              title.className = 'card-header gathering';
+              title.textContent = step.title || 'Step';
+              const description = document.createElement('div');
+              description.className = 'card-body';
+              description.textContent = step.description || '';
+              card.appendChild(title);
+              card.appendChild(description);
+              
+              if (step.command) {
+                const commandWrapper = document.createElement('div');
+                commandWrapper.className = 'command-container';
+                
+                const commandDisplay = document.createElement('div');
+                commandDisplay.className = 'command-display';
+                commandDisplay.textContent = `$ ${step.command}`;
+                commandWrapper.appendChild(commandDisplay);
+                
+                const allowBtn = document.createElement('button');
+                allowBtn.className = 'btn-allow-command';
+                allowBtn.textContent = '▶ Allow';
+                allowBtn.addEventListener('click', () => {
+                  executeCommand(allowBtn, step.command, step.requires_sudo || false);
+                });
+                commandWrapper.appendChild(allowBtn);
+                
+                card.appendChild(commandWrapper);
+              }
+              list.appendChild(card);
+              agentContent.appendChild(list);
+            }
+          }
+        } catch (error) {
+          agentMessage.querySelector('.message-content').textContent = `Error: ${error.message || error}`;
+        } finally {
+          setBusy(false);
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+      }
+    }
+
+    async function executeCommand(button, command, useSudo) {
+      try {
+        button.disabled = true;
+        button.textContent = 'Running...';
+        currentCommand = command;
+
+        if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.run_command !== 'function') {
+          throw new Error('The desktop API is not available.');
+        }
+
+        const result = await window.pywebview.api.run_command(command, useSudo);
+
+        if (result.success) {
+          addTerminalOutput(command, result.output || '(Command executed)');
+          button.style.borderColor = 'var(--accent-green)';
+          button.textContent = '✓ Success';
+        } else {
+          addTerminalOutput(command, result.error || result.output || 'Command failed', true);
+          button.style.borderColor = '#f85149';
+          button.textContent = '✗ Failed';
+        }
+
+        button.disabled = true;
+        awaitingNextStep = true;
+        
+        // Auto proceed to next step
+        setTimeout(() => proceedToNextStep(), 1000);
+      } catch (error) {
+        addTerminalOutput(command, `Error: ${error.message || error}`, true);
+        button.style.borderColor = '#f85149';
+        button.textContent = '✗ Error';
+        button.disabled = true;
+      }
     }
 
     function appendMessage(role, text) {
@@ -885,7 +1081,54 @@
 
       const content = document.createElement('div');
       content.className = 'message-content';
-      content.textContent = text;
+      if (typeof text === 'string') {
+        content.textContent = text;
+      } else if (text && typeof text === 'object') {
+        content.innerHTML = '';
+        if (text.reply) {
+          const reply = document.createElement('div');
+          reply.textContent = text.reply;
+          content.appendChild(reply);
+        }
+        if (Array.isArray(text.steps) && text.steps.length) {
+          const list = document.createElement('div');
+          list.className = 'card-list';
+          text.steps.forEach((step) => {
+            const card = document.createElement('div');
+            card.className = 'card';
+            const title = document.createElement('div');
+            title.className = 'card-header gathering';
+            title.textContent = step.title || 'Step';
+            const description = document.createElement('div');
+            description.className = 'card-body';
+            description.textContent = step.description || '';
+            card.appendChild(title);
+            card.appendChild(description);
+            
+            if (step.command) {
+              const commandWrapper = document.createElement('div');
+              commandWrapper.className = 'command-container';
+              
+              const commandDisplay = document.createElement('div');
+              commandDisplay.className = 'command-display';
+              commandDisplay.textContent = `$ ${step.command}`;
+              commandWrapper.appendChild(commandDisplay);
+              
+              const allowBtn = document.createElement('button');
+              allowBtn.className = 'btn-allow-command';
+              allowBtn.textContent = '▶ Allow';
+              allowBtn.addEventListener('click', () => {
+                executeCommand(allowBtn, step.command, step.requires_sudo || false);
+              });
+              commandWrapper.appendChild(allowBtn);
+              
+              card.appendChild(commandWrapper);
+            }
+            list.appendChild(card);
+          });
+          content.appendChild(list);
+        }
+      }
 
       wrapper.appendChild(header);
       wrapper.appendChild(content);
@@ -918,7 +1161,55 @@
         }
 
         const response = await window.pywebview.api.respond(text);
-        agentMessage.querySelector('.message-content').textContent = response || 'No response received.';
+        const agentContent = agentMessage.querySelector('.message-content');
+        if (response && typeof response === 'object') {
+          agentContent.innerHTML = '';
+          if (response.reply) {
+            const reply = document.createElement('div');
+            reply.textContent = response.reply;
+            agentContent.appendChild(reply);
+          }
+          if (Array.isArray(response.steps) && response.steps.length) {
+            const list = document.createElement('div');
+            list.className = 'card-list';
+            const step = response.steps[0];
+            
+            const card = document.createElement('div');
+            card.className = 'card';
+            const title = document.createElement('div');
+            title.className = 'card-header gathering';
+            title.textContent = step.title || 'Step';
+            const description = document.createElement('div');
+            description.className = 'card-body';
+            description.textContent = step.description || '';
+            card.appendChild(title);
+            card.appendChild(description);
+            
+            if (step.command) {
+              const commandWrapper = document.createElement('div');
+              commandWrapper.className = 'command-container';
+              
+              const commandDisplay = document.createElement('div');
+              commandDisplay.className = 'command-display';
+              commandDisplay.textContent = `$ ${step.command}`;
+              commandWrapper.appendChild(commandDisplay);
+              
+              const allowBtn = document.createElement('button');
+              allowBtn.className = 'btn-allow-command';
+              allowBtn.textContent = '▶ Allow';
+              allowBtn.addEventListener('click', () => {
+                executeCommand(allowBtn, step.command, step.requires_sudo || false);
+              });
+              commandWrapper.appendChild(allowBtn);
+              
+              card.appendChild(commandWrapper);
+            }
+            list.appendChild(card);
+            agentContent.appendChild(list);
+          }
+        } else {
+          agentContent.textContent = response || 'No response received.';
+        }
       } catch (error) {
         agentMessage.querySelector('.message-content').textContent = `Sorry, the agent could not respond: ${error.message || error}`;
       } finally {
