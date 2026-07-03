@@ -9,7 +9,7 @@ from datetime import datetime
 
 DEFAULT_MODEL = os.getenv(
     "OLLAMA_MODEL",
-    "orieg/gemma3-tools:4b-ft"
+    "gemma3:1b"
 ).strip()
 
 JSON_SCHEMA = {
@@ -62,11 +62,23 @@ JSON_SCHEMA = {
 }
 
 SYSTEM_PROMPT = """
-You are Penguin, an autonomous Linux troubleshooting assistant.
+You are Penguin, an autonomous Linux troubleshooting agent.
 
-You ONLY answer Linux related questions.
+Your job is to diagnose Linux issues by gathering information one step at a time.
 
-Always respond using the provided JSON schema.
+Never tell the user to contact a Linux expert, system administrator, or support unless explicitly requested.
+
+If you don't have enough information, request or execute another diagnostic command.
+
+Always continue troubleshooting until:
+1. The issue is solved.
+2. User input is required.
+3. The problem is impossible to continue without physical access.
+
+Never give up after one attempt.
+Never refuse because a problem is "too complex."
+
+Always return valid JSON.
 
 Rules:
 
@@ -118,6 +130,7 @@ class Api:
         self.input_queue = queue.Queue()
         self.chat_history = []
         self.chat_file = "chat_history.json"
+        self.last_context_report = None
         self.load_chat_history()
 
     def load_chat_history(self):
@@ -138,6 +151,50 @@ class Api:
                 json.dump(self.chat_history, f, indent=2)
         except Exception as e:
             print(f"Error saving chat history: {e}")
+
+    def _format_chat_history_context(self, limit=12):
+        """Build a compact context block from recent history."""
+        entries = self.chat_history[-limit:]
+        if not entries:
+            return "No prior context."
+
+        lines = []
+        for entry in entries:
+            role = str(entry.get("role", "unknown")).upper()
+            content = entry.get("content", "")
+            if isinstance(content, (dict, list)):
+                content = json.dumps(content, ensure_ascii=False)
+            content = str(content).strip()
+            if content:
+                lines.append(f"{role}: {content}")
+        return "\n".join(lines)
+
+    def _build_messages(self, message):
+        # Build a proper messages list including recent history with correct roles.
+        messages = []
+
+        # System prompt first
+        messages.append({"role": "system", "content": SYSTEM_PROMPT})
+
+        # Include latest system report as a system message for context
+        if self.last_context_report:
+            messages.append({"role": "system", "content": f"Latest system report:\n{self.last_context_report}"})
+
+        # Append recent conversation history using appropriate roles
+        entries = self.chat_history[-12:]
+        for entry in entries:
+            role = entry.get("role", "user")
+            content = entry.get("content", "")
+            if role == "agent":
+                role = "assistant"
+            elif role not in ("user", "assistant", "system"):
+                role = "user"
+            messages.append({"role": role, "content": content})
+
+        # Finally add the current user message
+        messages.append({"role": "user", "content": str(message).strip()})
+
+        return messages
 
     def add_to_history(self, role, content):
         """Add a message to chat history."""
@@ -188,30 +245,12 @@ class Api:
             }
 
         self.add_to_history("user", message)
-
-        # Build context from chat history
-        context = "\n\nPrevious conversation:\n"
-        for entry in self.chat_history[-10:]:  # Last 10 entries
-            if entry["role"] == "user":
-                context += f"User: {entry['content']}\n"
-            else:
-                context += f"Agent: {entry['content']}\n"
-
-        messages = [
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT
-            },
-            {
-                "role": "user",
-                "content": str(message).strip() + context
-            }
-        ]
+        messages = self._build_messages(message)
 
         candidate_models = []
         if self.model:
             candidate_models.append(self.model)
-        for fallback in ["orieg/gemma3-tools:4b-ft"]:
+        for fallback in ["gemma3:1b"]:
             if fallback not in candidate_models:
                 candidate_models.append(fallback)
 
@@ -229,19 +268,18 @@ class Api:
                     self.model = model_name
                     parsed = self._parse_response(content)
                     
-                    # Only return first command step
-                    if parsed.get("steps"):
-                        first_step = parsed["steps"][0]
-                        response_data = {
-                            "reply": parsed.get("reply", ""),
-                            "steps": [first_step],
-                            "has_more_steps": len(parsed["steps"]) > 1
-                        }
-                        self.add_to_history("agent", json.dumps(response_data))
-                        return response_data
-                    
-                    self.add_to_history("agent", json.dumps(parsed))
-                    return parsed
+                    response_data = {
+                        "reply": parsed.get("reply", ""),
+                        "steps": parsed.get("steps", []) if isinstance(parsed.get("steps"), list) else [],
+                        "has_more_steps": False
+                    }
+                    if response_data["steps"]:
+                        response_data["has_more_steps"] = len(response_data["steps"]) > 1
+                        response_data["next_step"] = response_data["steps"][0]
+
+                    # Save the raw assistant response content to history (not the parsed wrapper)
+                    self.add_to_history("agent", content)
+                    return response_data
             except Exception as exc:
                 last_error = exc
 
@@ -258,13 +296,18 @@ class Api:
         }
 
     def report_command_output(self, command, output, success):
-        """Report command output to be used in next agent call."""
+        """Report command output to be used in the next agent call."""
         status = "succeeded" if success else "failed"
-        report = f"Command '{command}' {status}. Output: {output}"
+        output_text = str(output or "").strip() or "(no output)"
+        report = f"Command '{command}' {status}. Output: {output_text}"
+        self.last_context_report = report
         self.add_to_history("system", report)
         return {
             "status": "reported",
-            "next_prompt": f"The command has been executed. Please continue with the next step or provide your analysis. Output: {output}"
+            "next_prompt": (
+                f"Use the latest command result as context and continue troubleshooting. "
+                f"Command: {command}\nOutput:\n{output_text}"
+            )
         }
 
     def run_command(self, command, use_sudo=False):

@@ -876,7 +876,7 @@
             </div>
           </div>
           <div class="terminal-window">
-            <div class="terminal-cmd">$ rfkill list wifi</div>
+            <!-- <div class="terminal-cmd">$ rfkill list wifi</div>
             <div class="terminal-res">Soft blocked: yes<br />Hard blocked: no</div>
             <span class="terminal-time">21:42:24</span>
             <div class="terminal-cmd">$ rfkill unblock wifi</div>
@@ -892,7 +892,7 @@
             <span class="terminal-time">21:42:30</span>
             <div class="terminal-cmd">$ ping -c 3 8.8.8.8</div>
             <div class="terminal-res">3 packets transmitted, 3 received, 0% loss</div>
-            <span class="terminal-time">21:42:33</span>
+            <span class="terminal-time">21:42:33</span> -->
           </div>
           <button class="btn-full-terminal">
             Open Full Terminal
@@ -916,6 +916,7 @@
 
     let currentCommand = null;
     let awaitingNextStep = false;
+    let pendingContextPrompt = null;
 
     function formatTime() {
       return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -929,7 +930,7 @@
 
       if (output) {
         const resDiv = document.createElement('div');
-        resDiv.className = isError ? 'terminal-res' : 'terminal-res';
+        resDiv.className = 'terminal-res';
         if (isError) {
           resDiv.style.color = '#f85149';
         }
@@ -945,67 +946,96 @@
       terminalWindow.scrollTop = terminalWindow.scrollHeight;
     }
 
+    function addLogOutput(message, isError = false) {
+      const line = document.createElement('div');
+      line.className = 'terminal-res';
+      if (isError) {
+        line.style.color = '#f85149';
+      }
+      line.textContent = `[log] ${message}`;
+      terminalWindow.appendChild(line);
+
+      const timeDiv = document.createElement('span');
+      timeDiv.className = 'terminal-time';
+      timeDiv.textContent = formatTime();
+      terminalWindow.appendChild(timeDiv);
+      terminalWindow.scrollTop = terminalWindow.scrollHeight;
+    }
+
+    function populateAgentContent(container, response) {
+      container.innerHTML = '';
+      if (response && typeof response === 'object') {
+        if (response.reply) {
+          const reply = document.createElement('div');
+          reply.textContent = response.reply;
+          container.appendChild(reply);
+        }
+        if (Array.isArray(response.steps) && response.steps.length) {
+          const list = document.createElement('div');
+          list.className = 'card-list';
+          response.steps.forEach((step) => {
+            const card = document.createElement('div');
+            card.className = 'card';
+            const title = document.createElement('div');
+            title.className = 'card-header gathering';
+            title.textContent = step.title || 'Step';
+            const description = document.createElement('div');
+            description.className = 'card-body';
+            description.textContent = step.description || '';
+            card.appendChild(title);
+            card.appendChild(description);
+
+            if (step.command) {
+              const commandWrapper = document.createElement('div');
+              commandWrapper.className = 'command-container';
+
+              const commandDisplay = document.createElement('div');
+              commandDisplay.className = 'command-display';
+              commandDisplay.textContent = `$ ${step.command}`;
+              commandWrapper.appendChild(commandDisplay);
+
+              const allowBtn = document.createElement('button');
+              allowBtn.className = 'btn-allow-command';
+              allowBtn.textContent = '▶ Allow';
+              allowBtn.addEventListener('click', () => {
+                executeCommand(allowBtn, step.command, step.requires_sudo || false);
+              });
+              commandWrapper.appendChild(allowBtn);
+
+              card.appendChild(commandWrapper);
+            }
+            list.appendChild(card);
+          });
+          container.appendChild(list);
+        }
+        if (response.error) {
+          const errorLine = document.createElement('div');
+          errorLine.textContent = `Error: ${response.error}`;
+          errorLine.style.color = '#f85149';
+          container.appendChild(errorLine);
+        }
+      } else {
+        container.textContent = response || 'No response received.';
+      }
+    }
+
     async function proceedToNextStep() {
       if (awaitingNextStep && currentCommand) {
         awaitingNextStep = false;
         setBusy(true);
         const agentMessage = appendMessage('agent', 'Analyzing...');
+        addLogOutput('Agent is analyzing the latest command result.');
 
         try {
           if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.respond !== 'function') {
             throw new Error('The desktop API is not available.');
           }
 
-          const response = await window.pywebview.api.respond("continue with next step");
+          const prompt = pendingContextPrompt || 'continue with next step';
+          pendingContextPrompt = null;
+          const response = await window.pywebview.api.respond(prompt);
           const agentContent = agentMessage.querySelector('.message-content');
-          
-          if (response && typeof response === 'object') {
-            agentContent.innerHTML = '';
-            if (response.reply) {
-              const reply = document.createElement('div');
-              reply.textContent = response.reply;
-              agentContent.appendChild(reply);
-            }
-            
-            if (Array.isArray(response.steps) && response.steps.length) {
-              const list = document.createElement('div');
-              list.className = 'card-list';
-              const step = response.steps[0];
-              
-              const card = document.createElement('div');
-              card.className = 'card';
-              const title = document.createElement('div');
-              title.className = 'card-header gathering';
-              title.textContent = step.title || 'Step';
-              const description = document.createElement('div');
-              description.className = 'card-body';
-              description.textContent = step.description || '';
-              card.appendChild(title);
-              card.appendChild(description);
-              
-              if (step.command) {
-                const commandWrapper = document.createElement('div');
-                commandWrapper.className = 'command-container';
-                
-                const commandDisplay = document.createElement('div');
-                commandDisplay.className = 'command-display';
-                commandDisplay.textContent = `$ ${step.command}`;
-                commandWrapper.appendChild(commandDisplay);
-                
-                const allowBtn = document.createElement('button');
-                allowBtn.className = 'btn-allow-command';
-                allowBtn.textContent = '▶ Allow';
-                allowBtn.addEventListener('click', () => {
-                  executeCommand(allowBtn, step.command, step.requires_sudo || false);
-                });
-                commandWrapper.appendChild(allowBtn);
-                
-                card.appendChild(commandWrapper);
-              }
-              list.appendChild(card);
-              agentContent.appendChild(list);
-            }
-          }
+          populateAgentContent(agentContent, response);
         } catch (error) {
           agentMessage.querySelector('.message-content').textContent = `Error: ${error.message || error}`;
         } finally {
@@ -1026,20 +1056,25 @@
         }
 
         const result = await window.pywebview.api.run_command(command, useSudo);
+        const outputText = (result.output || result.error || '').trim() || (result.success ? '(Command executed)' : 'Command failed');
 
         if (result.success) {
-          addTerminalOutput(command, result.output || '(Command executed)');
+          addTerminalOutput(command, outputText);
           button.style.borderColor = 'var(--accent-green)';
           button.textContent = '✓ Success';
         } else {
-          addTerminalOutput(command, result.error || result.output || 'Command failed', true);
+          addTerminalOutput(command, outputText, true);
           button.style.borderColor = '#f85149';
           button.textContent = '✗ Failed';
         }
 
+        const report = await window.pywebview.api.report_command_output(command, outputText, result.success);
+        pendingContextPrompt = report.next_prompt || null;
+        addLogOutput('Command result logged for the next agent turn.');
+
         button.disabled = true;
         awaitingNextStep = true;
-        
+
         // Auto proceed to next step
         setTimeout(() => proceedToNextStep(), 1000);
       } catch (error) {
@@ -1084,50 +1119,7 @@
       if (typeof text === 'string') {
         content.textContent = text;
       } else if (text && typeof text === 'object') {
-        content.innerHTML = '';
-        if (text.reply) {
-          const reply = document.createElement('div');
-          reply.textContent = text.reply;
-          content.appendChild(reply);
-        }
-        if (Array.isArray(text.steps) && text.steps.length) {
-          const list = document.createElement('div');
-          list.className = 'card-list';
-          text.steps.forEach((step) => {
-            const card = document.createElement('div');
-            card.className = 'card';
-            const title = document.createElement('div');
-            title.className = 'card-header gathering';
-            title.textContent = step.title || 'Step';
-            const description = document.createElement('div');
-            description.className = 'card-body';
-            description.textContent = step.description || '';
-            card.appendChild(title);
-            card.appendChild(description);
-            
-            if (step.command) {
-              const commandWrapper = document.createElement('div');
-              commandWrapper.className = 'command-container';
-              
-              const commandDisplay = document.createElement('div');
-              commandDisplay.className = 'command-display';
-              commandDisplay.textContent = `$ ${step.command}`;
-              commandWrapper.appendChild(commandDisplay);
-              
-              const allowBtn = document.createElement('button');
-              allowBtn.className = 'btn-allow-command';
-              allowBtn.textContent = '▶ Allow';
-              allowBtn.addEventListener('click', () => {
-                executeCommand(allowBtn, step.command, step.requires_sudo || false);
-              });
-              commandWrapper.appendChild(allowBtn);
-              
-              card.appendChild(commandWrapper);
-            }
-            list.appendChild(card);
-          });
-          content.appendChild(list);
-        }
+        populateAgentContent(content, text);
       }
 
       wrapper.appendChild(header);
@@ -1162,54 +1154,7 @@
 
         const response = await window.pywebview.api.respond(text);
         const agentContent = agentMessage.querySelector('.message-content');
-        if (response && typeof response === 'object') {
-          agentContent.innerHTML = '';
-          if (response.reply) {
-            const reply = document.createElement('div');
-            reply.textContent = response.reply;
-            agentContent.appendChild(reply);
-          }
-          if (Array.isArray(response.steps) && response.steps.length) {
-            const list = document.createElement('div');
-            list.className = 'card-list';
-            const step = response.steps[0];
-            
-            const card = document.createElement('div');
-            card.className = 'card';
-            const title = document.createElement('div');
-            title.className = 'card-header gathering';
-            title.textContent = step.title || 'Step';
-            const description = document.createElement('div');
-            description.className = 'card-body';
-            description.textContent = step.description || '';
-            card.appendChild(title);
-            card.appendChild(description);
-            
-            if (step.command) {
-              const commandWrapper = document.createElement('div');
-              commandWrapper.className = 'command-container';
-              
-              const commandDisplay = document.createElement('div');
-              commandDisplay.className = 'command-display';
-              commandDisplay.textContent = `$ ${step.command}`;
-              commandWrapper.appendChild(commandDisplay);
-              
-              const allowBtn = document.createElement('button');
-              allowBtn.className = 'btn-allow-command';
-              allowBtn.textContent = '▶ Allow';
-              allowBtn.addEventListener('click', () => {
-                executeCommand(allowBtn, step.command, step.requires_sudo || false);
-              });
-              commandWrapper.appendChild(allowBtn);
-              
-              card.appendChild(commandWrapper);
-            }
-            list.appendChild(card);
-            agentContent.appendChild(list);
-          }
-        } else {
-          agentContent.textContent = response || 'No response received.';
-        }
+        populateAgentContent(agentContent, response);
       } catch (error) {
         agentMessage.querySelector('.message-content').textContent = `Sorry, the agent could not respond: ${error.message || error}`;
       } finally {
