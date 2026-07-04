@@ -9,16 +9,15 @@ SPEC.loader.exec_module(module)
 
 
 class ContextFlowTests(unittest.TestCase):
-    def test_report_command_output_adds_context_and_next_prompt(self):
+    def test_report_command_output_returns_context_without_persisted_history(self):
         api = module.Api()
-        api.chat_history = []
 
         result = api.report_command_output("echo hi", "hi", True)
 
         self.assertEqual(result["status"], "reported")
         self.assertIn("echo hi", result["next_prompt"])
-        self.assertEqual(api.chat_history[-1]["role"], "system")
-        self.assertIn("hi", api.chat_history[-1]["content"])
+        self.assertNotIn("chat_history", api.__dict__)
+        self.assertNotIn("last_context_report", api.__dict__)
 
 
 if __name__ == "__main__":

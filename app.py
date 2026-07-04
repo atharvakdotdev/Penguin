@@ -1,3 +1,16 @@
+"""
+Penguin Linux troubleshooting agent.
+
+This module provides a simple wrapper (`Api`) around an LLM chat
+client (ollama.chat) to perform stepwise troubleshooting on a Linux
+host. The agent builds message context, parses JSON-formatted
+responses from the model, and can execute safe shell commands when
+instructed.
+
+The comments in this file explain the purpose of each function and
+key implementation details to help future maintenance.
+"""
+
 import json
 import os
 import subprocess
@@ -5,12 +18,10 @@ import threading
 import queue
 import webview
 from ollama import chat
-from datetime import datetime
 
-DEFAULT_MODEL = os.getenv(
-    "OLLAMA_MODEL",
-    "gemma3:1b"
-).strip()
+# Default model identifier. Can be overridden by setting the
+# `OLLAMA_MODEL` environment variable before launching the app.
+DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:1b").strip()
 
 JSON_SCHEMA = {
     "type": "object",
@@ -61,12 +72,15 @@ JSON_SCHEMA = {
     ]
 }
 
+# SYSTEM_PROMPT is sent as the model's system instruction. It guides the
+# agent's behavior and output format. Because the prompt is intentionally
+# strict (expects JSON-only replies), it can make the model appear
+# repetitive; adjust it if you want more flexible natural-language
+# responses.
 SYSTEM_PROMPT = """
 You are Penguin, an autonomous Linux troubleshooting agent.
 
 Your job is to diagnose Linux issues by gathering information one step at a time.
-
-Never tell the user to contact a Linux expert, system administrator, or support unless explicitly requested.
 
 If you don't have enough information, request or execute another diagnostic command.
 
@@ -74,9 +88,6 @@ Always continue troubleshooting until:
 1. The issue is solved.
 2. User input is required.
 3. The problem is impossible to continue without physical access.
-
-Never give up after one attempt.
-Never refuse because a problem is "too complex."
 
 Always return valid JSON.
 
@@ -104,108 +115,48 @@ For command steps:
 Example:
 
 {
-  "reply":"Let's diagnose the issue.",
-  "steps":[
-    {
-      "type":"info",
-      "title":"Checking NetworkManager",
-      "description":"First we'll verify the service."
-    },
-    {
-      "type":"command",
-      "title":"Check status",
-      "command":"systemctl status NetworkManager",
-      "run":true,
-      "requires_sudo":false
-    }
-  ]
+    "reply":"Let's diagnose the issue.",
+    "steps":[
+        {
+            "type":"info",
+            "title":"Checking NetworkManager",
+            "description":"First we'll verify the service."
+        },
+        {
+            "type":"command",
+            "title":"Check status",
+            "command":"systemctl status NetworkManager",
+            "run":true,
+            "requires_sudo":false
+        }
+    ]
 }
 """
 
 
 class Api:
     def __init__(self):
+        # Selected model identifier (may be switched to a working fallback)
         self.model = DEFAULT_MODEL
+
+        # If a command is executed interactively, this may hold the process
         self.active_process = None
+
+        # Queue for providing input to interactive commands (not commonly used)
         self.input_queue = queue.Queue()
-        self.chat_history = []
-        self.chat_file = "chat_history.json"
-        self.last_context_report = None
-        self.load_chat_history()
-
-    def load_chat_history(self):
-        """Load chat history from file."""
-        if os.path.exists(self.chat_file):
-            try:
-                with open(self.chat_file, 'r') as f:
-                    self.chat_history = json.load(f)
-            except:
-                self.chat_history = []
-        else:
-            self.chat_history = []
-
-    def save_chat_history(self):
-        """Save chat history to file."""
-        try:
-            with open(self.chat_file, 'w') as f:
-                json.dump(self.chat_history, f, indent=2)
-        except Exception as e:
-            print(f"Error saving chat history: {e}")
-
-    def _format_chat_history_context(self, limit=12):
-        """Build a compact context block from recent history."""
-        entries = self.chat_history[-limit:]
-        if not entries:
-            return "No prior context."
-
-        lines = []
-        for entry in entries:
-            role = str(entry.get("role", "unknown")).upper()
-            content = entry.get("content", "")
-            if isinstance(content, (dict, list)):
-                content = json.dumps(content, ensure_ascii=False)
-            content = str(content).strip()
-            if content:
-                lines.append(f"{role}: {content}")
-        return "\n".join(lines)
 
     def _build_messages(self, message):
-        # Build a proper messages list including recent history with correct roles.
+        """Build the messages payload for the model without prior history."""
         messages = []
-
-        # System prompt first
         messages.append({"role": "system", "content": SYSTEM_PROMPT})
-
-        # Include latest system report as a system message for context
-        if self.last_context_report:
-            messages.append({"role": "system", "content": f"Latest system report:\n{self.last_context_report}"})
-
-        # Append recent conversation history using appropriate roles
-        entries = self.chat_history[-12:]
-        for entry in entries:
-            role = entry.get("role", "user")
-            content = entry.get("content", "")
-            if role == "agent":
-                role = "assistant"
-            elif role not in ("user", "assistant", "system"):
-                role = "user"
-            messages.append({"role": role, "content": content})
-
-        # Finally add the current user message
         messages.append({"role": "user", "content": str(message).strip()})
-
         return messages
 
-    def add_to_history(self, role, content):
-        """Add a message to chat history."""
-        self.chat_history.append({
-            "timestamp": datetime.now().isoformat(),
-            "role": role,
-            "content": content
-        })
-        self.save_chat_history()
-
     def _parse_response(self, content):
+        # Parse the model's textual output into the structured agent
+        # response. The model is expected to return JSON, but we handle
+        # cases where the model returns plain text or wraps output in
+        # markdown code fences.
         if not content:
             return {
                 "reply": "I couldn't generate a response.",
@@ -218,6 +169,8 @@ class Api:
             if cleaned.startswith("json"):
                 cleaned = cleaned[4:].strip()
 
+        # Try to load JSON. If parsing fails, fall back to returning the
+        # raw text as the reply.
         try:
             parsed = json.loads(cleaned)
         except json.JSONDecodeError:
@@ -238,15 +191,13 @@ class Api:
         }
 
     def respond(self, message):
+        # Entry point: validate input and build messages
         if not message or not str(message).strip():
-            return {
-                "reply": "Please enter a message.",
-                "steps": []
-            }
+            return {"reply": "Please enter a message.", "steps": []}
 
-        self.add_to_history("user", message)
         messages = self._build_messages(message)
 
+        # Try the configured model first, then a small set of fallbacks
         candidate_models = []
         if self.model:
             candidate_models.append(self.model)
@@ -257,51 +208,53 @@ class Api:
         last_error = None
         for model_name in candidate_models:
             try:
+                # Call the ollama chat client. We expect a dict-like response
+                # with the assistant message text under response['message']['content'].
                 response = chat(
                     model=model_name,
                     messages=messages,
                     format=JSON_SCHEMA,
                     stream=False
                 )
-                content = response.get("message", {}).get("content", "") if isinstance(response, dict) else getattr(getattr(response, "message", None), "content", "")
+
+                # Extract the text content in a defensive manner to support
+                # different client return shapes.
+                content = (
+                    response.get("message", {}).get("content", "")
+                    if isinstance(response, dict)
+                    else getattr(getattr(response, "message", None), "content", "")
+                )
+
                 if content:
+                    # Promote the working model to the current model
                     self.model = model_name
                     parsed = self._parse_response(content)
-                    
+
                     response_data = {
                         "reply": parsed.get("reply", ""),
                         "steps": parsed.get("steps", []) if isinstance(parsed.get("steps"), list) else [],
-                        "has_more_steps": False
+                        "has_more_steps": False,
                     }
                     if response_data["steps"]:
                         response_data["has_more_steps"] = len(response_data["steps"]) > 1
                         response_data["next_step"] = response_data["steps"][0]
 
-                    # Save the raw assistant response content to history (not the parsed wrapper)
-                    self.add_to_history("agent", content)
+                    print(response_data)
                     return response_data
             except Exception as exc:
+                # Record the last exception to surface if all models fail
                 last_error = exc
 
+        # If we exhausted the model list, return a helpful error payload
         if last_error is not None:
-            return {
-                "reply": f"Model Error",
-                "steps": [],
-                "error": str(last_error)
-            }
+            return {"reply": f"Model Error", "steps": [], "error": str(last_error)}
 
-        return {
-            "reply": "I couldn't generate a response.",
-            "steps": []
-        }
+        return {"reply": "I couldn't generate a response.", "steps": []}
 
     def report_command_output(self, command, output, success):
         """Report command output to be used in the next agent call."""
         status = "succeeded" if success else "failed"
         output_text = str(output or "").strip() or "(no output)"
-        report = f"Command '{command}' {status}. Output: {output_text}"
-        self.last_context_report = report
-        self.add_to_history("system", report)
         return {
             "status": "reported",
             "next_prompt": (
@@ -324,35 +277,26 @@ class Api:
         try:
             if use_sudo:
                 command = f"sudo {command}"
-            
+
+            # Run the command in a short timeout to avoid stalling the UI.
             result = subprocess.run(
                 command,
                 shell=True,
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=30,
             )
-            
+
             return {
                 "success": result.returncode == 0,
                 "output": result.stdout,
                 "error": result.stderr,
-                "return_code": result.returncode
+                "return_code": result.returncode,
             }
         except subprocess.TimeoutExpired:
-            return {
-                "success": False,
-                "output": "",
-                "error": "Command timed out after 30 seconds",
-                "return_code": -1
-            }
+            return {"success": False, "output": "", "error": "Command timed out after 30 seconds", "return_code": -1}
         except Exception as e:
-            return {
-                "success": False,
-                "output": "",
-                "error": str(e),
-                "return_code": -1
-            }
+            return {"success": False, "output": "", "error": str(e), "return_code": -1}
 
     def submit_command_input(self, input_text):
         """
@@ -362,6 +306,9 @@ class Api:
             input_text: The input to send to the running process
         """
         try:
+            # Put user input into the queue for any interactive
+            # processes that may be listening. This is rarely used but
+            # keeps the API generic.
             self.input_queue.put(input_text)
             return {"success": True}
         except Exception as e:
