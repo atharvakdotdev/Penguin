@@ -138,7 +138,12 @@ class Api:
     def __init__(self):
         # Selected model identifier (may be switched to a working fallback)
         self.model = DEFAULT_MODEL
-
+        self.chat_history = [
+                            {
+                                "role": "system",
+                                "content": SYSTEM_PROMPT
+                            }
+                        ]
         # If a command is executed interactively, this may hold the process
         self.active_process = None
 
@@ -151,7 +156,15 @@ class Api:
         messages.append({"role": "system", "content": SYSTEM_PROMPT})
         messages.append({"role": "user", "content": str(message).strip()})
         return messages
-
+    def clean_history(self, history):
+        for i, item in enumerate(history):
+            if isinstance(item, list):
+                history[i] = [
+                    msg
+                    for msg in item
+                    if msg.get("role") != "system"
+                ]
+        return history
     def _parse_response(self, content):
         # Parse the model's textual output into the structured agent
         # response. The model is expected to return JSON, but we handle
@@ -195,9 +208,12 @@ class Api:
         if not message or not str(message).strip():
             return {"reply": "Please enter a message.", "steps": []}
 
-        messages = self._build_messages(message)
-
+        self.chat_history.append({
+            "role": "user",
+            "content": str(message).strip()
+        })
         # Try the configured model first, then a small set of fallbacks
+
         candidate_models = []
         if self.model:
             candidate_models.append(self.model)
@@ -212,7 +228,7 @@ class Api:
                 # with the assistant message text under response['message']['content'].
                 response = chat(
                     model=model_name,
-                    messages=messages,
+                    messages=self.chat_history,
                     format=JSON_SCHEMA,
                     stream=False
                 )
@@ -226,20 +242,30 @@ class Api:
                 )
 
                 if content:
-                    # Promote the working model to the current model
+                    # Save the assistant response to the conversation history
+                    self.chat_history.append({
+                        "role": "assistant",
+                        "content": content
+                    })
+
+                    # Promote the working model
                     self.model = model_name
+
+                    # Parse the JSON for your UI
                     parsed = self._parse_response(content)
 
                     response_data = {
                         "reply": parsed.get("reply", ""),
-                        "steps": parsed.get("steps", []) if isinstance(parsed.get("steps"), list) else [],
+                        "steps": parsed.get("steps", [])
+                        if isinstance(parsed.get("steps"), list)
+                        else [],
                         "has_more_steps": False,
                     }
+
                     if response_data["steps"]:
                         response_data["has_more_steps"] = len(response_data["steps"]) > 1
                         response_data["next_step"] = response_data["steps"][0]
 
-                    print(response_data)
                     return response_data
             except Exception as exc:
                 # Record the last exception to surface if all models fail
@@ -286,6 +312,7 @@ class Api:
                 text=True,
                 timeout=30,
             )
+
 
             return {
                 "success": result.returncode == 0,
