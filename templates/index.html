@@ -1070,7 +1070,6 @@
 
         const report = await window.pywebview.api.report_command_output(command, outputText, result.success);
         pendingContextPrompt = report.next_prompt || null;
-        addLogOutput('Command result logged for the next agent turn.');
 
         button.disabled = true;
         awaitingNextStep = true;
