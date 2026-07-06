@@ -156,10 +156,8 @@ class Api:
 
         status = "succeeded" if success else "failed"
         output_text = str(output or "").strip() or "(no output)"
-
-        next_prompt = {
-            "role": "user",
-            "content": f"""
+        print(output_text)
+        next_prompt = f"""
     The requested command has finished.
 
     Status: {status}
@@ -169,12 +167,13 @@ class Api:
 
     Output:
     {output_text}
+    Do NOT repeat this command unless the result has changed.
 
+    Choose the next diagnostic step based on the above output.
     Continue troubleshooting based on this result. If the issue is solved, return the finished status. Otherwise, provide the next diagnostic step.
-    """.strip(),
-        }
+    """
+        
 
-        self.chat_history.append(next_prompt)
 
         return {
             "status": "reported",
@@ -220,15 +219,15 @@ class Api:
         except Exception as e:
             return {"success": False, "output": "", "error": str(e), "return_code": -1}
 
-    def submit_command_input(self, input_text):
-        """
-        Submit input to an interactive command.
+    # def submit_command_input(self, input_text):
+    #     """
+    #     Submit input to an interactive command.
 
-        Args:
-            input_text: The input to send to the running process
-        """
-        try:
-            self.input_queue.put(input_text)
-            return {"success": True}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+    #     Args:
+    #         input_text: The input to send to the running process
+    #     """
+    #     try:
+    #         self.input_queue.put(input_text)
+    #         return {"success": True}
+    #     except Exception as e:
+    #         return {"success": False, "error": str(e)}
