@@ -4,12 +4,11 @@ JSON_SCHEMA = {
         "reply": {
             "type": "string"
         },
-        "status": {
-            "type": "string",
-            "enum": [
-                "in_progress",
-                "finished"
-            ]
+        "decision": {
+            "type": "string"
+        },
+        "investigation_update": {
+            "type": "object"
         },
         "steps": {
             "type": "array",
@@ -50,7 +49,7 @@ JSON_SCHEMA = {
     },
     "required": [
         "reply",
-        "status",
+        "decision",
         "steps"
     ]
 }

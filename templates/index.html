@@ -967,9 +967,42 @@
       if (response && typeof response === 'object') {
         if (response.reply) {
           const reply = document.createElement('div');
+          reply.className = 'card-body';
+          reply.style.whiteSpace = 'pre-wrap';
           reply.textContent = response.reply;
           container.appendChild(reply);
         }
+
+        const metaItems = [];
+        if (response.decision) {
+          metaItems.push({ label: 'Decision', value: response.decision });
+        }
+        if (response.investigation_update && typeof response.investigation_update === 'object') {
+          const updateKeys = Object.keys(response.investigation_update || {});
+          if (updateKeys.length) {
+            metaItems.push({ label: 'Investigation', value: updateKeys.join(', ') });
+          }
+        }
+
+        if (metaItems.length) {
+          const metaList = document.createElement('div');
+          metaList.className = 'card-list';
+          metaItems.forEach((item) => {
+            const card = document.createElement('div');
+            card.className = 'card';
+            const title = document.createElement('div');
+            title.className = 'card-header gathering';
+            title.textContent = item.label;
+            const body = document.createElement('div');
+            body.className = 'card-body';
+            body.textContent = item.value;
+            card.appendChild(title);
+            card.appendChild(body);
+            metaList.appendChild(card);
+          });
+          container.appendChild(metaList);
+        }
+
         if (Array.isArray(response.steps) && response.steps.length) {
           const list = document.createElement('div');
           list.className = 'card-list';
