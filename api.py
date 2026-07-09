@@ -128,7 +128,7 @@ class Api:
     def respond(self, message):
         if not message or not str(message).strip():
             return {"reply": "Please enter a message.", "steps": []}
-
+        print(self.investigating_obj)
         self.chat_history = self.clean_history(self.chat_history)
         self.chat_history.extend(self.build_messages(message))
         with open("chat_history.json", "w") as f:
