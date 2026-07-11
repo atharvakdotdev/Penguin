@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from ollama import chat
 
 from schemas import JSON_SCHEMA
-from states import DEFAULT_STATE, STATE_PROMPTS, SYSTEM_PROMPT
+from states import DEFAULT_STATE, STATE_PROMPTS, SYSTEM_PROMPT, InvestigationState
 
 DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:1b").strip()
 
@@ -20,79 +20,73 @@ class Api:
         self.state = DEFAULT_STATE
         self.chat_history = []
         self.active_process = None
-        self.investigating_obj = self._new_investigation()
+        self.investigation = InvestigationState()
         self.input_queue = queue.Queue()
 
+    @property
+    def investigating_obj(self):
+        return self.investigation.obj
+
+    @investigating_obj.setter
+    def investigating_obj(self, value):
+        # preserve external assignment behavior by replacing the internal object
+        if isinstance(value, dict):
+            self.investigation.obj = value
+        else:
+            self.investigation.obj = self.investigation.new_investigation()
+
     def _new_investigation(self):
-        return {
-            "issue": "",
-            "summary": "",
-            "status": "active",
-            "facts": {},
-            "hypotheses": [],
-            "executed_commands": [],
-            "questions_asked": [],
-            "pending_questions": [],
-            "root_cause": None,
-            "solution": None,
-            "confidence": 0,
-            "next_goal": "",
-        }
+        return self.investigation.new_investigation()
+
+    def _unique_list(self, items):
+        return self.investigation._unique_list(items)
+
+    def _normalize_facts(self, facts):
+        return self.investigation._normalize_facts(facts)
+
+    def _merge_hypotheses(self, current, updates):
+        return self.investigation.merge_hypotheses(current, updates)
+
+    def _merge_executed_commands(self, current, updates):
+        return self.investigation.merge_executed_commands(current, updates)
+
+    def _infer_root_cause(self):
+        return self.investigation.infer_root_cause()
+
+    def _ensure_next_goal(self):
+        return self.investigation.ensure_next_goal(self.state)
+
+    def _reconcile_state(self, parsed=None):
+        self.state = self.investigation.reconcile_state(self.state, parsed)
+
+    def _serialize_investigation(self):
+        return self.investigation.serialize()
 
     def build_messages(self, message):
         """Build the messages payload for the model without prior history."""
+        self._reconcile_state()
         investigation_summary = self._serialize_investigation()
-        messages = []
-        messages.append({"role": "system", "content": STATE_PROMPTS[self.state]})
-        messages.append({"role": "system", "content": SYSTEM_PROMPT})
-        messages.append({"role": "system", "content": investigation_summary})
-        messages.append({"role": "user", "content": str(message).strip()})
+        messages = [
+            {"role": "system", "content": STATE_PROMPTS[self.state]},
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": investigation_summary},
+            {"role": "user", "content": str(message).strip()},
+        ]
         return messages
 
-    def clean_history(self, history):
-        return [msg for msg in history if msg.get("role") != "system"]
-
-    def _serialize_investigation(self):
-        return json.dumps(self.investigating_obj, indent=2, sort_keys=True)
-
     def _merge_investigation_update(self, update):
-        if not isinstance(update, dict):
-            return
-        for key, value in update.items():
-            if key in {"facts", "hypotheses", "executed_commands", "questions_asked", "pending_questions"}:
-                current = self.investigating_obj.get(key, []) if key != "facts" else self.investigating_obj.get(key, {})
-                if isinstance(current, list) and isinstance(value, list):
-                    current.extend(value)
-                    self.investigating_obj[key] = current
-                elif isinstance(current, dict) and isinstance(value, dict):
-                    current.update(value)
-                    self.investigating_obj[key] = current
-                else:
-                    self.investigating_obj[key] = value
-            else:
-                self.investigating_obj[key] = value
+        # delegate to InvestigationState and keep local reference in sync
+        self.investigation.merge_update(update, self.state)
+        self.investigating_obj = self.investigation.obj
 
     def _transition_state(self, decision):
-        if decision == "start_hypothesis":
-            self.state = "hypothesis"
-        elif decision == "test_hypothesis":
-            self.state = "diagnose"
-        elif decision == "analyze":
-            self.state = "analyze"
-        elif decision == "solve":
-            self.state = "solve"
-        elif decision == "finished":
-            self.state = "finished"
-        elif decision == "continue_understanding":
-            self.state = "understand"
-        elif decision == "need_more_information":
-            self.state = "understand"
-        elif decision == "continue_diagnosis":
-            self.state = "diagnose"
-        elif decision == "new_hypothesis":
-            self.state = "hypothesis"
-        else:
-            self.state = self.state
+        # kept for backward compatibility; delegate to InvestigationState
+        self.state = self.investigation.transition_state(decision, self.state)
+
+    def _apply_controller_transitions(self, parsed):
+        # kept for backward compatibility; delegate to InvestigationState
+        self.state = self.investigation.apply_controller_transitions(parsed, self.state)
+        self.investigating_obj = self.investigation.obj
 
     def parse_response(self, content):
         if not content:
@@ -116,9 +110,21 @@ class Api:
             update = parsed.get("investigation_update")
             if isinstance(update, dict):
                 self._merge_investigation_update(update)
+            self._apply_controller_transitions(parsed)
+            command = parsed.get("command")
+            if decision == "run_command" and isinstance(command, str):
+                if not self._should_run_command(command):
+                    return {
+                        "reply": "This command has already been executed. Choose a different diagnostic action.",
+                        "decision": "need_more_information",
+                        "steps": [],
+                        "investigation_update": {},
+                    }
             return {
                 "reply": parsed.get("reply", cleaned),
                 "decision": decision,
+                "command": command,
+                "requires_sudo": parsed.get("requires_sudo", False),
                 "steps": parsed.get("steps", []) if isinstance(parsed.get("steps"), list) else [],
                 "investigation_update": update,
             }
@@ -129,8 +135,7 @@ class Api:
         if not message or not str(message).strip():
             return {"reply": "Please enter a message.", "steps": []}
         print(self.investigating_obj)
-        self.chat_history = self.clean_history(self.chat_history)
-        self.chat_history.extend(self.build_messages(message))
+        self.chat_history = self.build_messages(message)
         with open("chat_history.json", "w") as f:
             json.dump(self.chat_history, f, indent=4)
 
@@ -172,7 +177,7 @@ class Api:
                     if response_data["steps"]:
                         response_data["has_more_steps"] = len(response_data["steps"]) > 1
                         response_data["next_step"] = response_data["steps"][0]
-
+                    print(response_data)
                     return response_data
             except Exception as exc:
                 last_error = exc

@@ -9,9 +9,16 @@ JSON_SCHEMA = {
             "type": "string",
             "description": "Short internal reasoning summary. Never reveal chain-of-thought. Explain conclusions only."
         },
-
         "decision": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+                "understand",
+                "hypothesis",
+                "diagnose",
+                "solve",
+                "verify",
+                "finished"
+            ]
         },
 
         "investigation_update": {
@@ -36,7 +43,9 @@ JSON_SCHEMA = {
                 },
 
                 "facts": {
-                    "type": "array",
+                    "type": ["object", "array"],
+                    "description": "Facts may be returned as a dictionary keyed by fact name or as facts objects.",
+                    "additionalProperties": True,
                     "items": {
                         "type": "object",
                         "properties": {
@@ -142,10 +151,11 @@ JSON_SCHEMA = {
     },
     "required": [
         "reply",
-        "decision",
-        "steps"
+        "decision"
     ]
 }
+
+
 
 history = {
     "system_prompt": "",
