@@ -1052,6 +1052,60 @@
       }
     }
 
+    // Helper: return true if any step contains an executable command
+    function hasExecutableCommand(steps) {
+      if (!Array.isArray(steps)) return false;
+      return steps.some((s) => s && s.command);
+    }
+
+    // Process a single agent response and auto-continue if `is_continue` is true
+    // and there are no executable commands in the returned steps.
+    async function processAgentResponse(agentMessage, response) {
+      if (!response) return;
+
+      // Expose the latest investigation object for potential use by the page
+      if (response.investigation_update && typeof response.investigation_update === 'object') {
+        window.investigating_obj = response.investigation_update;
+      }
+
+      const agentContent = agentMessage.querySelector('.message-content');
+      populateAgentContent(agentContent, response);
+
+      // If backend asked to continue, and there are no executable commands, call respond()
+      let loopCount = 0;
+      while (response && response.is_continue) {
+        // If any step contains a command, stop auto-continuation to wait for user permission
+        if (hasExecutableCommand(response.steps)) {
+          break;
+        }
+
+        // No investigation update to continue with — stop
+        if (!response.investigation_update) break;
+
+        loopCount += 1;
+        if (loopCount > 10) break; // safety to avoid infinite loops
+
+        try {
+          setBusy(true);
+          addLogOutput('Auto-continuation: sending investigation object to agent.');
+          const nextPrompt = JSON.stringify(response.investigation_update);
+          const nextResponse = await window.pywebview.api.respond(nextPrompt);
+          response = nextResponse;
+
+          if (response.investigation_update && typeof response.investigation_update === 'object') {
+            window.investigating_obj = response.investigation_update;
+          }
+
+          populateAgentContent(agentContent, response);
+        } catch (err) {
+          addLogOutput(`Auto-continue error: ${err.message || err}`, true);
+          break;
+        } finally {
+          setBusy(false);
+        }
+      }
+    }
+
     async function proceedToNextStep() {
       if (awaitingNextStep && currentCommand) {
         awaitingNextStep = false;
@@ -1067,8 +1121,7 @@
           const prompt = pendingContextPrompt || 'continue with next step';
           pendingContextPrompt = null;
           const response = await window.pywebview.api.respond(prompt);
-          const agentContent = agentMessage.querySelector('.message-content');
-          populateAgentContent(agentContent, response);
+          await processAgentResponse(agentMessage, response);
         } catch (error) {
           agentMessage.querySelector('.message-content').textContent = `Error: ${error.message || error}`;
         } finally {
@@ -1107,7 +1160,7 @@
         button.disabled = true;
         awaitingNextStep = true;
 
-        // Auto proceed to next step
+        // Proceed to next step which will call respond and handle is_continue
         setTimeout(() => proceedToNextStep(), 1000);
       } catch (error) {
         addTerminalOutput(command, `Error: ${error.message || error}`, true);
@@ -1185,8 +1238,7 @@
         }
 
         const response = await window.pywebview.api.respond(text);
-        const agentContent = agentMessage.querySelector('.message-content');
-        populateAgentContent(agentContent, response);
+        await processAgentResponse(agentMessage, response);
       } catch (error) {
         agentMessage.querySelector('.message-content').textContent = `Sorry, the agent could not respond: ${error.message || error}`;
       } finally {

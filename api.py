@@ -22,7 +22,7 @@ class Api:
         self.active_process = None
         self.investigation = InvestigationState()
         self.input_queue = queue.Queue()
-
+        self.continue_event = False
     @property
     def investigating_obj(self):
         return self.investigation.obj
@@ -81,7 +81,7 @@ class Api:
 
     def _transition_state(self, decision):
         # kept for backward compatibility; delegate to InvestigationState
-        self.state = self.investigation.transition_state(decision, self.state)
+        self.state , self.continue_event = self.investigation.transition_state(decision, self.state)
 
     def _apply_controller_transitions(self, parsed):
         # kept for backward compatibility; delegate to InvestigationState
@@ -104,6 +104,11 @@ class Api:
             return {"reply": cleaned, "steps": []}
 
         if isinstance(parsed, dict):
+            # honor is_continue provided by the model in the parsed response
+            try:
+                self.continue_event = bool(parsed.get("is_continue", False))
+            except Exception:
+                self.continue_event = False
             decision = parsed.get("decision")
             if isinstance(decision, str):
                 self._transition_state(decision)
@@ -127,6 +132,7 @@ class Api:
                 "requires_sudo": parsed.get("requires_sudo", False),
                 "steps": parsed.get("steps", []) if isinstance(parsed.get("steps"), list) else [],
                 "investigation_update": update,
+                "is_continue": self.continue_event,
             }
 
         return {"reply": cleaned, "steps": []}
@@ -135,7 +141,7 @@ class Api:
         if not message or not str(message).strip():
             return {"reply": "Please enter a message.", "steps": []}
         print(self.investigating_obj)
-        self.chat_history = self.build_messages(message)
+        self.chat_history.extend(self.build_messages(message))
         with open("chat_history.json", "w") as f:
             json.dump(self.chat_history, f, indent=4)
 
@@ -145,7 +151,7 @@ class Api:
         for fallback in ["gemma3:1b"]:
             if fallback not in candidate_models:
                 candidate_models.append(fallback)
-
+        print(self.chat_history)
         last_error = None
         for model_name in candidate_models:
             try:
@@ -172,6 +178,8 @@ class Api:
                         "steps": parsed.get("steps", []) if isinstance(parsed.get("steps"), list) else [],
                         "has_more_steps": False,
                         "decision": parsed.get("decision"),
+                        "investigation_update": self.investigating_obj,
+                        "is_continue": self.continue_event,
                     }
 
                     if response_data["steps"]:
@@ -268,16 +276,3 @@ Choose the next diagnostic step based on the above output.
         except Exception as e:
             self._record_command(command, False, str(e))
             return {"success": False, "output": "", "error": str(e), "return_code": -1}
-
-    # def submit_command_input(self, input_text):
-    #     """
-    #     Submit input to an interactive command.
-
-    #     Args:
-    #         input_text: The input to send to the running process
-    #     """
-    #     try:
-    #         self.input_queue.put(input_text)
-    #         return {"success": True}
-    #     except Exception as e:
-    #         return {"success": False, "error": str(e)}
