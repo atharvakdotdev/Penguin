@@ -1,14 +1,19 @@
 JSON_SCHEMA = {
     "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "reply",
+        "decision",
+        "steps",
+        "investigation_update"
+    ],
     "properties": {
+
         "reply": {
-            "type": "string"
+            "type": "string",
+            "description": "Natural language shown to the user. Never include shell commands."
         },
 
-        "thinking": {
-            "type": "string",
-            "description": "Short internal reasoning summary. Never reveal chain-of-thought. Explain conclusions only."
-        },
         "decision": {
             "type": "string",
             "enum": [
@@ -21,9 +26,91 @@ JSON_SCHEMA = {
             ]
         },
 
+        "steps": {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "additionalProperties": False,
+
+        "properties": {
+            "type": {
+                "type": "string",
+                "enum": [
+                    "info",
+                    "analysis",
+                    "command",
+                    "verification"
+                ]
+            },
+
+            "title": {
+                "type": "string"
+            },
+
+            "description": {
+                "type": "string"
+            },
+
+            "command": {
+                "type": "string"
+            },
+
+            "run": {
+                "type": "boolean"
+            },
+
+            "requires_sudo": {
+                "type": "boolean"
+            }
+        },
+
+        "required": [
+            "type",
+            "title",
+            "description"
+        ],
+
+        "allOf": [
+            {
+                "if": {
+                    "properties": {
+                        "type": {
+                            "const": "command"
+                        }
+                    }
+                },
+                "then": {
+                    "required": [
+                        "command",
+                        "run",
+                        "requires_sudo"
+                    ]
+                }
+            },
+            {
+                "if": {
+                    "properties": {
+                        "type": {
+                            "const": "verification"
+                        }
+                    }
+                },
+                "then": {
+                    "required": [
+                        "command",
+                        "run"
+                    ]
+                }
+            }
+        ]
+    }
+},
+
         "investigation_update": {
             "type": "object",
+            "additionalProperties": True,
             "properties": {
+
                 "summary": {
                     "type": "string"
                 },
@@ -43,24 +130,28 @@ JSON_SCHEMA = {
                 },
 
                 "facts": {
-                    "type": ["object", "array"],
-                    "description": "Facts may be returned as a dictionary keyed by fact name or as facts objects.",
-                    "additionalProperties": True,
+                    "type": "array",
                     "items": {
                         "type": "object",
-                        "properties": {
-                            "key": {
-                                "type": "string"
-                            },
-                            "value": {},
-                            "confidence": {
-                                "type": "number"
-                            }
-                        },
+                        "additionalProperties": False,
                         "required": [
                             "key",
                             "value"
-                        ]
+                        ],
+                        "properties": {
+
+                            "key": {
+                                "type": "string"
+                            },
+
+                            "value": {},
+
+                            "confidence": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1
+                            }
+                        }
                     }
                 },
 
@@ -68,13 +159,24 @@ JSON_SCHEMA = {
                     "type": "array",
                     "items": {
                         "type": "object",
+                        "additionalProperties": True,
+                        "required": [
+                            "name",
+                            "confidence",
+                            "status"
+                        ],
                         "properties": {
+
                             "name": {
                                 "type": "string"
                             },
+
                             "confidence": {
-                                "type": "number"
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1
                             },
+
                             "status": {
                                 "type": "string",
                                 "enum": [
@@ -84,15 +186,11 @@ JSON_SCHEMA = {
                                     "rejected"
                                 ]
                             },
+
                             "reason": {
                                 "type": "string"
                             }
-                        },
-                        "required": [
-                            "name",
-                            "confidence",
-                            "status"
-                        ]
+                        }
                     }
                 },
 
@@ -110,51 +208,9 @@ JSON_SCHEMA = {
                     }
                 }
             }
-        },
-
-        "steps": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "type": {
-                        "type": "string",
-                        "enum": [
-                            "info",
-                            "analysis",
-                            "command",
-                            "verification"
-                        ]
-                    },
-                    "title": {
-                        "type": "string"
-                    },
-                    "description": {
-                        "type": "string"
-                    },
-                    "command": {
-                        "type": "string"
-                    },
-                    "run": {
-                        "type": "boolean"
-                    },
-                    "requires_sudo": {
-                        "type": "boolean"
-                    }
-                },
-                "required": [
-                    "type",
-                    "title"
-                ]
-            }
         }
-    },
-    "required": [
-        "reply",
-        "decision"
-    ]
+    }
 }
-
 
 
 history = {

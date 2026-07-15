@@ -11,7 +11,7 @@ from ollama import chat
 from schemas import JSON_SCHEMA
 from states import DEFAULT_STATE, STATE_PROMPTS, SYSTEM_PROMPT, InvestigationState
 
-DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:1b").strip()
+DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b-q4_K_M").strip()
 
 
 class Api:
@@ -140,26 +140,32 @@ class Api:
     def respond(self, message):
         if not message or not str(message).strip():
             return {"reply": "Please enter a message.", "steps": []}
-        print(self.investigating_obj)
+        # print(self.investigating_obj)
         self.chat_history.extend(self.build_messages(message))
+
         with open("chat_history.json", "w") as f:
             json.dump(self.chat_history, f, indent=4)
 
         candidate_models = []
         if self.model:
             candidate_models.append(self.model)
-        for fallback in ["gemma3:1b"]:
+        for fallback in ["qwen3:8b-q4_K_M"]:
             if fallback not in candidate_models:
                 candidate_models.append(fallback)
-        print(self.chat_history)
+        # print(self.chat_history)
         last_error = None
         for model_name in candidate_models:
             try:
                 response = chat(
                     model=model_name,
-                    messages=self.chat_history,
+                    messages=self.build_messages(message),
                     format=JSON_SCHEMA,
                     stream=False,
+                    think=False,
+                    keep_alive=-1,
+                    options = {
+    "num_thread": 4
+}
                 )
 
                 content = (
@@ -169,7 +175,7 @@ class Api:
                 )
 
                 if content:
-                    self.chat_history.append({"role": "assistant", "content": content})
+                    self.chat_history.extend([{"role": "assistant", "content": content}])
                     self.model = model_name
                     parsed = self.parse_response(content)
 
