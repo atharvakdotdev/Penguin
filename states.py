@@ -72,8 +72,8 @@ steps MUST be [].
 
 Never generate more than one command.
 
-Never repeat an executed command unless the controller explicitly indicates
-its previous result is no longer valid.
+Never repeat the most recently executed command unless the controller
+explicitly indicates its previous result is no longer valid.
 
 ────────────────────
 INVESTIGATION_UPDATE
@@ -289,7 +289,7 @@ Generate ONE diagnostic command only if it provides new evidence.
 
 Rules
 
-Never repeat executed commands.
+Never repeat the most recently executed command.
 
 Never generate broad commands when a smaller one exists.
 
@@ -463,18 +463,12 @@ class InvestigationState:
             current = []
         if not isinstance(updates, list):
             return current
-        commands_by_name = {entry.get("command"): entry for entry in current if isinstance(entry, dict) and entry.get("command")}
-        order = [entry.get("command") for entry in current if isinstance(entry, dict) and entry.get("command")]
+
+        merged = list(current)
         for entry in updates:
-            if not isinstance(entry, dict) or "command" not in entry:
-                continue
-            command = entry["command"]
-            if command in commands_by_name:
-                commands_by_name[command] = {**commands_by_name[command], **entry}
-            else:
-                commands_by_name[command] = entry
-                order.append(command)
-        return [commands_by_name[name] for name in order if name in commands_by_name]
+            if isinstance(entry, dict) and "command" in entry:
+                merged.append(entry)
+        return merged
 
     def infer_root_cause(self):
         if self.obj.get("confidence", 0) < 0.9:

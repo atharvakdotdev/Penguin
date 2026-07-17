@@ -11,7 +11,7 @@ from ollama import chat
 from schemas import JSON_SCHEMA
 from states import DEFAULT_STATE, STATE_PROMPTS, SYSTEM_PROMPT, InvestigationState
 
-DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b-q4_K_M").strip()
+DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b").strip()
 
 
 class Api:
@@ -149,7 +149,7 @@ class Api:
         candidate_models = []
         if self.model:
             candidate_models.append(self.model)
-        for fallback in ["qwen3:8b-q4_K_M"]:
+        for fallback in ["qwen2.5-coder:3b"]:
             if fallback not in candidate_models:
                 candidate_models.append(fallback)
         # print(self.chat_history)
@@ -157,16 +157,17 @@ class Api:
         for model_name in candidate_models:
             try:
                 response = chat(
-                    model=model_name,
-                    messages=self.build_messages(message),
-                    format=JSON_SCHEMA,
-                    stream=False,
-                    think=False,
-                    keep_alive=-1,
-                    options = {
-    "num_thread": 4
-}
-                )
+    model=model_name,
+    messages=self.build_messages(message),
+    format=JSON_SCHEMA,
+    stream=False,
+    think=False,
+    keep_alive=-1,
+    options={
+        "num_thread": 4,
+        "num_ctx": 4096,
+    }
+)
 
                 content = (
                     response.get("message", {}).get("content", "")
@@ -218,7 +219,7 @@ Command:
 Output:
 {output_text}
 
-Do NOT repeat this command unless the result has changed.
+Do NOT repeat the same command immediately on the next step unless the result has changed.
 Choose the next diagnostic step based on the above output.
 """
         return {
@@ -229,10 +230,6 @@ Choose the next diagnostic step based on the above output.
 
     def _record_command(self, command, success, output):
         executions = self.investigating_obj.setdefault("executed_commands", [])
-        for entry in executions:
-            if entry.get("command") == command:
-                return
-
         execution = {
             "command": command,
             "success": success,
@@ -242,10 +239,12 @@ Choose the next diagnostic step based on the above output.
         executions.append(execution)
 
     def _should_run_command(self, command):
-        for entry in self.investigating_obj.get("executed_commands", []):
-            if entry.get("command") == command:
-                return False
-        return True
+        executions = self.investigating_obj.get("executed_commands", [])
+        if not executions:
+            return True
+
+        last_command = executions[-1].get("command") if isinstance(executions[-1], dict) else None
+        return last_command != command
 
     def run_command(self, command, use_sudo=False):
         """Execute a shell command once per investigation object state."""
