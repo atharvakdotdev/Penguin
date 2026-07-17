@@ -486,19 +486,16 @@ class InvestigationState:
             self.obj["next_goal"] = "Verify repair"
 
     def reconcile_state(self, current_state, parsed=None):
-        # Returns the reconciled state (may be unchanged)
+        """Keep the state aligned to the LLM's own decision flow.
+
+        The controller must not infer or override investigation states from
+        evidence snapshots. Only the model should move the investigation
+        between understand -> hypothesis -> diagnose -> solve -> verify -> finished.
+        """
         state = current_state
-        if self.obj.get("confidence", 0) > 0.9:
-            state = "solve"
-
-        if state == "understand" and not self.obj.get("executed_commands"):
-            state = "diagnose"
-
-        if parsed and parsed.get("decision") == "run_command":
-            state = "diagnose"
 
         if state == "finished":
-            self.obj["next_goal"] = "Verify repair"
+            self.obj["next_goal"] = "over"
 
         return state
 
@@ -573,59 +570,11 @@ class InvestigationState:
         return state, continue_
 
     def apply_controller_transitions(self, parsed, current_state):
+        """Controller-only enforcement pass.
+
+        The LLM owns investigation state transitions and decisions. The
+        controller only needs to preserve the current state and enforce
+        execution constraints such as duplicate command prevention and history
+        maintenance.
         """
-        Apply controller-level state transitions.
-
-        Pipeline:
-        understand -> hypothesis -> diagnose -> solve -> verify -> finished
-        """
-
-        state = current_state
-
-        # If we are confident enough, move to solving.
-        if self.obj.get("confidence", 0) >= 0.9:
-            state = "solve"
-
-        # After a command has been requested, we are diagnosing.
-        if parsed.get("decision") == "run_command":
-            state = "diagnose"
-
-        # If we've gathered enough information, move from understand
-        # to hypothesis generation.
-        if (
-            state == "understand"
-            and (
-                self.obj.get("executed_commands")
-                or self.obj.get("facts")
-                or self.obj.get("questions_asked")
-            )
-        ):
-            state = "hypothesis"
-
-        # Once at least one hypothesis exists, begin diagnosis.
-        if (
-            state == "hypothesis"
-            and self.obj.get("hypotheses")
-        ):
-            state = "diagnose"
-
-        # If a root cause has been identified, begin solving.
-        if (
-            state == "diagnose"
-            and self.obj.get("root_cause")
-        ):
-            state = "solve"
-
-        # If a solution has been generated, verify it.
-        if (
-            state == "solve"
-            and self.obj.get("solution")
-        ):
-            state = "verify"
-
-        # Verification complete.
-        if parsed.get("decision") == "finished":
-            state = "finished"
-            self.obj["next_goal"] = "Verify repair"
-
-        return state
+        return current_state
