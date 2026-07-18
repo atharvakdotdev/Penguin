@@ -115,7 +115,8 @@
       text-decoration: none;
       font-size: 0.9rem;
       margin-bottom: 24px;
-      transition: background 0.2s;
+      transition: background 0.2s, opacity 0.28s ease, transform 0.28s ease, max-height 0.28s ease;
+      overflow: hidden;
     }
 
     .btn-new-session:hover {
@@ -125,6 +126,8 @@
     .nav-list {
       list-style: none;
       margin-bottom: 40px;
+      transition: opacity 0.28s ease, transform 0.28s ease, max-height 0.28s ease, margin-bottom 0.28s ease;
+      overflow: hidden;
     }
 
     .nav-item {
@@ -144,6 +147,11 @@
       color: var(--text-main);
     }
 
+    .nav-item.active {
+      background: rgba(63, 185, 80, 0.12);
+      color: var(--accent-green);
+    }
+
     .nav-item svg {
       width: 18px;
       height: 18px;
@@ -153,6 +161,8 @@
     .system-overview {
       margin-top: auto;
       font-size: 0.8rem;
+      transition: opacity 0.28s ease, transform 0.28s ease, max-height 0.28s ease;
+      overflow: hidden;
     }
 
     .section-title {
@@ -188,6 +198,100 @@
       border-top: 1px solid var(--border-color);
       font-size: 0.85rem;
       color: var(--accent-green);
+      transition: opacity 0.28s ease, transform 0.28s ease, max-height 0.28s ease;
+      overflow: hidden;
+    }
+
+    .sidebar.is-session-mode .btn-new-session,
+    .sidebar.is-session-mode .nav-list,
+    .sidebar.is-session-mode .system-overview,
+    .sidebar.is-session-mode .agent-status,
+    .sidebar.is-session-mode .quick-actions {
+      opacity: 0;
+      max-height: 0;
+      margin: 0;
+      pointer-events: none;
+      transform: translateY(-10px);
+    }
+
+    .sessions-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      opacity: 0;
+      max-height: 0;
+      overflow: hidden;
+      transform: translateY(-10px);
+      transition: opacity 0.28s ease, transform 0.28s ease, max-height 0.38s ease;
+    }
+
+    .sidebar.is-session-mode .sessions-panel {
+      opacity: 1;
+      max-height: 420px;
+      transform: translateY(0);
+    }
+
+    .sessions-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--accent-green);
+      font-size: 0.85rem;
+      margin-bottom: 4px;
+    }
+
+    .session-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      overflow-y: auto;
+      padding-right: 6px;
+    }
+
+    .session-item {
+      border: 1px solid var(--border-color);
+      background: var(--bg-panel);
+      color: var(--text-main);
+      border-radius: 8px;
+      padding: 10px 12px;
+      text-align: left;
+      cursor: pointer;
+      font-size: 0.82rem;
+      transition: border-color 0.18s ease, background 0.18s ease;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .session-item:hover {
+      border-color: var(--accent-green);
+      background: rgba(63, 185, 80, 0.12);
+    }
+
+    .session-item small {
+      display: block;
+      color: var(--text-dim);
+      margin-top: 4px;
+    }
+
+    .session-item-content {
+      flex: 1;
+    }
+
+    .session-delete-btn {
+      border: 1px solid var(--border-color);
+      background: transparent;
+      color: var(--text-dim);
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 0.7rem;
+      cursor: pointer;
+    }
+
+    .session-delete-btn:hover {
+      border-color: #f85149;
+      color: #f85149;
     }
 
     .status-dot {
@@ -615,7 +719,7 @@
         </div>
         <p style="font-size: 0.7rem; color: var(--text-dim); margin-top: -15px; margin-bottom: 25px;">Autonomous Linux
           Troubleshooter</p>
-        <a class="btn-new-session" href="#">
+        <a class="btn-new-session" id="newSessionButton" href="#">
           <span>New Session</span>
           <svg fill="none" height="16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
             stroke-width="2" viewbox="0 0 24 24" width="16" xmlns="http://www.w3.org/2000/svg">
@@ -623,8 +727,15 @@
             <path d="M12 5v14"></path>
           </svg>
         </a>
-        <ul class="nav-list">
-          <li class="nav-item">
+        <div class="sessions-panel" id="sessionsPanel">
+          <div class="sessions-header">
+            <span>Saved Sessions</span>
+            <button class="action-btn" id="closeSessionsButton" type="button">Close</button>
+          </div>
+          <div class="session-list" id="sessionList"></div>
+        </div>
+        <ul class="nav-list" id="sidebarNavList">
+          <li class="nav-item" data-role="sessions-toggle">
             <svg fill="none" height="24" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
               stroke-width="2" viewbox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
@@ -678,7 +789,7 @@
           <div class="status-dot"></div>
           Agent: Online
         </div>
-        <div style="display: flex; gap: 8px; margin-top: 20px;">
+        <div class="quick-actions" style="display: flex; gap: 8px; margin-top: 20px;">
           <div class="action-btn" style="flex: 1; justify-content: center;"><svg fill="none" height="16"
               stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24"
               width="16" xmlns="http://www.w3.org/2000/svg">
@@ -710,7 +821,7 @@
               <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path>
               <polyline points="14 2 14 8 20 8"></polyline>
             </svg>
-            <span>Session 2025-05-27 21:42</span>
+            <span data-session-title>Live Session</span>
             <span class="tag-active">ACTIVE</span>
           </div>
           
@@ -913,13 +1024,144 @@
     const chatMessages = document.getElementById('chatMessages');
     const sendButton = document.getElementById('sendButton');
     const terminalWindow = document.querySelector('.terminal-window');
+    const sidebar = document.querySelector('.sidebar');
+    const newSessionButton = document.getElementById('newSessionButton');
+    const sessionsButton = document.querySelector('[data-role="sessions-toggle"]');
+    const closeSessionsButton = document.getElementById('closeSessionsButton');
+    const sessionList = document.getElementById('sessionList');
+    const sessionTitle = document.querySelector('[data-session-title]');
 
     let currentCommand = null;
     let awaitingNextStep = false;
     let pendingContextPrompt = null;
+    let sessionsOpen = false;
 
     function formatTime() {
       return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function setSessionTitle(title) {
+      if (sessionTitle) {
+        sessionTitle.textContent = title || 'Live Session';
+      }
+    }
+
+    function clearChatView() {
+      chatMessages.innerHTML = '';
+    }
+
+    function isControllerPrompt(text) {
+      if (typeof text !== 'string') {
+        return false;
+      }
+      const cleaned = text.trim();
+      return cleaned.startsWith('The requested command has finished.') && cleaned.includes('Choose the next diagnostic step based on the above output.');
+    }
+
+    function getExecutedCommandSet() {
+      const appliedState = window.investigating_obj || {};
+      const executions = Array.isArray(appliedState.executed_commands) ? appliedState.executed_commands : [];
+      const commands = new Set();
+      executions.forEach((entry) => {
+        if (entry && typeof entry.command === 'string' && entry.command.trim()) {
+          commands.add(entry.command.trim());
+        }
+      });
+      return commands;
+    }
+
+    function renderSessionHistory(history) {
+      clearChatView();
+      if (!Array.isArray(history)) {
+        return;
+      }
+      history.forEach((entry) => {
+        if (!entry || !entry.role || entry.role === 'system') {
+          return;
+        }
+        if (entry.role === 'user' && isControllerPrompt(entry.content)) {
+          return;
+        }
+        if (entry.role === 'assistant' || entry.role === 'user') {
+          appendMessage(entry.role === 'assistant' ? 'agent' : 'user', entry);
+        }
+      });
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function renderSessionList() {
+      if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.list_sessions !== 'function') {
+        return;
+      }
+      window.pywebview.api.list_sessions().then((sessions) => {
+        sessionList.innerHTML = '';
+        if (!Array.isArray(sessions) || !sessions.length) {
+          const empty = document.createElement('div');
+          empty.className = 'session-item';
+          empty.textContent = 'No saved sessions yet';
+          sessionList.appendChild(empty);
+          return;
+        }
+        sessions.forEach((session) => {
+          const wrapper = document.createElement('div');
+          wrapper.className = 'session-item';
+          const content = document.createElement('div');
+          content.className = 'session-item-content';
+          const sessionId = session.session_id ?? session.id;
+          const title = document.createElement('div');
+          title.textContent = session.title || `Session ${sessionId}`;
+          const meta = document.createElement('small');
+          meta.textContent = `Updated ${new Date(session.updated_at || session.modified || Date.now()).toLocaleString()}`;
+          content.appendChild(title);
+          content.appendChild(meta);
+
+          const deleteBtn = document.createElement('button');
+          deleteBtn.type = 'button';
+          deleteBtn.className = 'session-delete-btn';
+          deleteBtn.textContent = 'Delete';
+          deleteBtn.addEventListener('click', async (event) => {
+            event.stopPropagation();
+            try {
+              const result = await window.pywebview.api.delete_session(sessionId);
+              if (result && result.status === 'deleted') {
+                renderSessionList();
+                addLogOutput(`Deleted session ${sessionId}.`);
+              }
+            } catch (error) {
+              addLogOutput(`Unable to delete session: ${error.message || error}`, true);
+            }
+          });
+
+          wrapper.addEventListener('click', async () => {
+            try {
+              const result = await window.pywebview.api.open_session(sessionId);
+              if (result && result.status === 'opened') {
+                window.investigating_obj = result.investigating_obj || result.investigation || {};
+                setSessionTitle(result.title || 'Loaded Session');
+                renderSessionHistory(result.chat_history || []);
+                sidebar.classList.remove('is-session-mode');
+                sessionsOpen = false;
+              }
+            } catch (error) {
+              addLogOutput(`Unable to open session: ${error.message || error}`, true);
+            }
+          });
+
+          wrapper.appendChild(content);
+          wrapper.appendChild(deleteBtn);
+          sessionList.appendChild(wrapper);
+        });
+      }).catch((error) => {
+        addLogOutput(`Unable to load sessions: ${error.message || error}`, true);
+      });
+    }
+
+    function toggleSessionsPanel() {
+      sessionsOpen = !sessionsOpen;
+      sidebar.classList.toggle('is-session-mode', sessionsOpen);
+      if (sessionsOpen) {
+        renderSessionList();
+      }
     }
 
     function addTerminalOutput(command, output, isError = false) {
@@ -1004,6 +1246,7 @@
         }
 
         if (Array.isArray(response.steps) && response.steps.length) {
+          const executedCommands = getExecutedCommandSet();
           const list = document.createElement('div');
           list.className = 'card-list';
           response.steps.forEach((step) => {
@@ -1029,7 +1272,12 @@
 
               const allowBtn = document.createElement('button');
               allowBtn.className = 'btn-allow-command';
-              allowBtn.textContent = '▶ Allow';
+              const commandAlreadyExecuted = executedCommands.has(step.command.trim());
+              allowBtn.disabled = commandAlreadyExecuted;
+              allowBtn.textContent = commandAlreadyExecuted ? '✓ Ran' : '▶ Allow';
+              if (commandAlreadyExecuted) {
+                allowBtn.style.borderColor = 'var(--accent-green)';
+              }
               allowBtn.addEventListener('click', () => {
                 executeCommand(allowBtn, step.command, step.requires_sudo || false);
               });
@@ -1194,17 +1442,55 @@
 
       const timestamp = document.createElement('span');
       timestamp.className = 'timestamp';
-      timestamp.textContent = formatTime();
+      const timestampValue = text && typeof text === 'object' && (text.timestamp || text.created || text.modified)
+        ? text.timestamp || text.created || text.modified
+        : null;
+      timestamp.textContent = timestampValue ? new Date(timestampValue).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : formatTime();
 
       header.appendChild(label);
       header.appendChild(timestamp);
 
       const content = document.createElement('div');
       content.className = 'message-content';
+
       if (typeof text === 'string') {
-        content.textContent = text;
+        const trimmed = text.trim();
+        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            populateAgentContent(content, parsed);
+          } catch (error) {
+            content.textContent = text;
+          }
+        } else {
+          content.textContent = text;
+        }
       } else if (text && typeof text === 'object') {
-        populateAgentContent(content, text);
+        const payload = text.role === 'assistant' || text.role === 'user'
+          ? text.content
+          : text;
+
+        if (role === 'agent') {
+          if (typeof payload === 'string') {
+            const trimmed = payload.trim();
+            if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+              try {
+                const parsed = JSON.parse(trimmed);
+                populateAgentContent(content, parsed);
+              } catch (error) {
+                content.textContent = payload;
+              }
+            } else {
+              content.textContent = payload;
+            }
+          } else if (payload && typeof payload === 'object') {
+            populateAgentContent(content, payload);
+          } else {
+            content.textContent = '';
+          }
+        } else if (role === 'user') {
+          content.textContent = typeof payload === 'string' ? payload : (payload && payload.content) || '';
+        }
       }
 
       wrapper.appendChild(header);
@@ -1239,6 +1525,9 @@
 
         const response = await window.pywebview.api.respond(text);
         await processAgentResponse(agentMessage, response);
+        if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.save_current_session === 'function') {
+          await window.pywebview.api.save_current_session();
+        }
       } catch (error) {
         agentMessage.querySelector('.message-content').textContent = `Sorry, the agent could not respond: ${error.message || error}`;
       } finally {
@@ -1256,6 +1545,30 @@
     });
 
     sendButton.addEventListener('click', sendMessage);
+
+    sessionsButton.addEventListener('click', toggleSessionsPanel);
+    closeSessionsButton.addEventListener('click', toggleSessionsPanel);
+
+    newSessionButton.addEventListener('click', async (event) => {
+      event.preventDefault();
+      if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.create_new_session !== 'function') {
+        addLogOutput('The desktop API is not available.', true);
+        return;
+      }
+      try {
+        const result = await window.pywebview.api.create_new_session();
+        sidebar.classList.remove('is-session-mode');
+        sessionsOpen = false;
+        clearChatView();
+        appendMessage('agent', 'I’m ready to help with Linux troubleshooting. Ask me anything.');
+        setSessionTitle('Live Session');
+        addLogOutput(result && result.status ? `New ${result.status} created.` : 'New session created.');
+      } catch (error) {
+        addLogOutput(`Unable to create a new session: ${error.message || error}`, true);
+      }
+    });
+
+    renderSessionList();
 
     document.querySelectorAll('.control-btn').forEach((btn) => {
       btn.addEventListener('click', () => {

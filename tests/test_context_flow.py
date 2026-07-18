@@ -1,6 +1,7 @@
 import importlib.util
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("penguin_app", ROOT / "app.py")
@@ -36,6 +37,107 @@ class ContextFlowTests(unittest.TestCase):
         self.assertIn("understand", messages[0]["content"])
         self.assertIn("network issue", messages[2]["content"])
         self.assertEqual(messages[-1]["content"], "What next?")
+
+    def test_session_snapshot_is_saved_and_restored(self):
+        api = module.Api()
+        api.chat_history = [{"role": "user", "content": "hello"}]
+        api.investigating_obj = {"issue": "network issue", "summary": "The interface is down"}
+        api.continue_event = True
+
+        saved = api.save_current_session()
+        self.assertIsInstance(saved["session_id"], str)
+
+        refreshed = api.create_new_session()
+        self.assertEqual(api.chat_history, [])
+        self.assertEqual(api.investigating_obj["issue"], "")
+        self.assertFalse(api.continue_event)
+
+        restored = api.open_session(saved["session_id"])
+        self.assertEqual(restored["chat_history"][0]["content"], "hello")
+        self.assertEqual(restored["investigating_obj"]["issue"], "network issue")
+        self.assertTrue(restored["continue_event"])
+
+    def test_sessions_list_returns_previous_sessions(self):
+        api = module.Api()
+        api.chat_history = [{"role": "user", "content": "persist me"}]
+        api.investigating_obj = {"issue": "persistent issue", "summary": "still active"}
+        api.save_current_session()
+
+        sessions = api.list_sessions()
+        self.assertTrue(any(session["title"] for session in sessions))
+
+    def test_assistant_json_is_saved_without_flattening_or_reconstruction(self):
+        api = module.Api()
+        assistant_payload = {
+            "reply": "Python is missing.",
+            "decision": "diagnose",
+            "steps": [{"type": "command", "command": "python3 --version"}],
+            "investigation_update": {"summary": "Checking Python"},
+        }
+        api.chat_history = [{"role": "user", "content": "hello"}, {"role": "assistant", **assistant_payload}]
+        api.investigating_obj = {"issue": "python missing"}
+
+        session_id = api.save_current_session()["session_id"]
+        restored = api.open_session(session_id)
+
+        self.assertEqual(restored["chat_history"][-1]["reply"], "Python is missing.")
+        self.assertEqual(restored["chat_history"][-1]["steps"][0]["command"], "python3 --version")
+        self.assertEqual(restored["investigating_obj"]["issue"], "python missing")
+
+    def test_delete_session_removes_saved_chat(self):
+        api = module.Api()
+        api.chat_history = [{"role": "user", "content": "delete me"}]
+        api.investigating_obj = {"issue": "temporary"}
+        saved = api.save_current_session()
+
+        before = len(api.list_sessions())
+        result = api.delete_session(saved["session_id"])
+
+        self.assertEqual(result["status"], "deleted")
+        self.assertEqual(len(api.list_sessions()), before - 1)
+
+    def test_controller_prompt_is_not_saved_as_a_user_message(self):
+        api = module.Api()
+        controller_prompt = """
+The requested command has finished.
+
+Status: succeeded
+
+Command:
+echo hi
+
+Output:
+hi
+
+Do NOT repeat this command unless the result has changed.
+Choose the next diagnostic step based on the above output.
+"""
+
+        with patch("api.chat") as mock_chat:
+            mock_chat.return_value = {
+                "message": {
+                    "content": '{"reply": "Checking next step.", "decision": "diagnose", "steps": [], "investigation_update": {}}'
+                }
+            }
+            api.respond(controller_prompt)
+
+        self.assertEqual(len(api.chat_history), 1)
+        self.assertEqual(api.chat_history[0]["role"], "assistant")
+
+    def test_internal_investigation_json_is_not_saved_as_user_message(self):
+        api = module.Api()
+        internal_prompt = '{"issue": "python missing", "summary": "Checking Python", "status": "active", "facts": {}, "hypotheses": [], "executed_commands": [], "questions_asked": [], "pending_questions": [], "root_cause": null, "solution": null, "confidence": 0, "next_goal": ""}'
+
+        with patch("api.chat") as mock_chat:
+            mock_chat.return_value = {
+                "message": {
+                    "content": '{"reply": "Checking next step.", "decision": "diagnose", "steps": [], "investigation_update": {}}'
+                }
+            }
+            api.respond(internal_prompt)
+
+        self.assertEqual(len(api.chat_history), 1)
+        self.assertEqual(api.chat_history[0]["role"], "assistant")
 
 
 if __name__ == "__main__":

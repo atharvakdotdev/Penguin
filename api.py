@@ -1,14 +1,17 @@
 """API layer for the Penguin troubleshooting agent."""
 
+import copy
 import json
 import os
 import queue
 import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 
 from ollama import chat
 
 from schemas import JSON_SCHEMA
+from session_manager import SessionManager
 from states import DEFAULT_STATE, STATE_PROMPTS, SYSTEM_PROMPT, InvestigationState
 
 DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b").strip()
@@ -19,21 +22,181 @@ class Api:
         self.model = DEFAULT_MODEL
         self.state = DEFAULT_STATE
         self.chat_history = []
+        self.active_session_id = None
         self.active_process = None
         self.investigation = InvestigationState()
         self.input_queue = queue.Queue()
         self.continue_event = False
+        self.session_manager = SessionManager(Path(__file__).resolve().parent / "sessions_store.json")
+
     @property
     def investigating_obj(self):
         return self.investigation.obj
 
     @investigating_obj.setter
     def investigating_obj(self, value):
-        # preserve external assignment behavior by replacing the internal object
         if isinstance(value, dict):
             self.investigation.obj = value
         else:
             self.investigation.obj = self.investigation.new_investigation()
+
+    def _reset_runtime_state(self):
+        self.state = DEFAULT_STATE
+        self.chat_history = []
+        self.investigation = InvestigationState()
+        self.investigating_obj = self.investigation.new_investigation()
+        self.continue_event = False
+        self.active_session_id = None
+
+    @staticmethod
+    def _is_controller_prompt(message):
+        if not isinstance(message, str):
+            return False
+        cleaned = message.strip()
+        return (
+            cleaned.startswith("The requested command has finished.")
+            and "Choose the next diagnostic step based on the above output." in cleaned
+        )
+
+    @staticmethod
+    def _is_internal_investigation_payload(message):
+        if not isinstance(message, str):
+            return False
+        cleaned = message.strip()
+        if not (cleaned.startswith("{") and cleaned.endswith("}")):
+            return False
+        try:
+            payload = json.loads(cleaned)
+        except json.JSONDecodeError:
+            return False
+        return isinstance(payload, dict) and any(key in payload for key in ["issue", "summary", "facts", "hypotheses", "executed_commands", "next_goal", "confidence"])
+
+    def _sanitize_chat_history(self, history):
+        if not isinstance(history, list):
+            return []
+
+        cleaned = []
+        for entry in history:
+            if not isinstance(entry, dict):
+                continue
+            role = entry.get("role")
+            if role == "system":
+                continue
+            if role == "user":
+                content = entry.get("content")
+                if self._is_controller_prompt(content):
+                    continue
+            cleaned.append(copy.deepcopy(entry))
+        return cleaned
+
+    def _derive_session_title(self):
+        for entry in reversed(self.chat_history):
+            if entry.get("role") == "user" and entry.get("content"):
+                content = str(entry["content"]).strip()
+                return content[:30] + ("..." if len(content) > 30 else "")
+        return "New Chat"
+
+    def _session_snapshot(self):
+        now = datetime.now(timezone.utc).isoformat()
+        return {
+            "id": self.active_session_id,
+            "title": self._derive_session_title(),
+            "created": now,
+            "modified": now,
+            "chatHistory": self._sanitize_chat_history(self.chat_history),
+            "investigation": copy.deepcopy(self.investigating_obj),
+            "isContinue": bool(self.continue_event),
+        }
+
+    def save_current_session(self, title=None):
+        snapshot = self._session_snapshot()
+        if title:
+            snapshot["title"] = title
+        if self.active_session_id is None:
+            saved = self.session_manager.create_session(snapshot)
+            self.active_session_id = saved["id"]
+        else:
+            snapshot["id"] = self.active_session_id
+            saved = self.session_manager.save_session(snapshot)
+            self.active_session_id = saved["id"]
+
+        return {
+            "session_id": self.active_session_id,
+            "id": self.active_session_id,
+            "title": saved["title"],
+            "updated_at": saved["modified"],
+        }
+
+    def list_sessions(self):
+        sessions = self.session_manager.list_sessions()
+        return [
+            {
+                "id": session.get("id"),
+                "session_id": session.get("id"),
+                "title": session.get("title") or "New Chat",
+                "created": session.get("created"),
+                "modified": session.get("modified"),
+                "updated_at": session.get("modified"),
+                "chatHistory": self._sanitize_chat_history(session.get("chatHistory", [])),
+                "chat_history": self._sanitize_chat_history(session.get("chatHistory", [])),
+                "investigation": copy.deepcopy(session.get("investigation", {})),
+                "investigating_obj": copy.deepcopy(session.get("investigation", {})),
+                "isContinue": bool(session.get("isContinue", False)),
+                "continue_event": bool(session.get("isContinue", False)),
+            }
+            for session in sessions
+        ]
+
+    def open_session(self, session_id):
+        session = self.session_manager.load_session(str(session_id))
+        if session is None:
+            return {"status": "not_found", "session_id": session_id}
+
+        self.active_session_id = session["id"]
+        self.chat_history = self._sanitize_chat_history(session.get("chatHistory", []))
+        self.investigation = InvestigationState()
+        self.investigating_obj = copy.deepcopy(session.get("investigation", {}))
+        self.continue_event = bool(session.get("isContinue", False))
+        self.state = DEFAULT_STATE
+
+        return {
+            "status": "opened",
+            "session_id": self.active_session_id,
+            "title": session.get("title") or "New Chat",
+            "chat_history": copy.deepcopy(self.chat_history),
+            "investigating_obj": copy.deepcopy(self.investigating_obj),
+            "continue_event": self.continue_event,
+        }
+
+    def delete_session(self, session_id):
+        removed = self.session_manager.delete_session(str(session_id))
+        if removed and self.active_session_id == str(session_id):
+            self._reset_runtime_state()
+        return {"status": "deleted" if removed else "not_found", "session_id": session_id}
+
+    def create_new_session(self):
+        if self.active_session_id is not None:
+            self.save_current_session()
+
+        created = self.session_manager.create_session(
+            {
+                "id": None,
+                "title": "New Chat",
+                "created": datetime.now(timezone.utc).isoformat(),
+                "modified": datetime.now(timezone.utc).isoformat(),
+                "chatHistory": [],
+                "investigation": {},
+                "isContinue": False,
+            }
+        )
+        self._reset_runtime_state()
+        self.active_session_id = created["id"]
+        return {
+            "status": "created",
+            "session_id": self.active_session_id,
+            "id": self.active_session_id,
+            "title": created["title"],
+        }
 
     def _new_investigation(self):
         return self.investigation.new_investigation()
@@ -64,10 +227,10 @@ class Api:
 
     def build_messages(self, message):
         """Build the messages payload for the model without prior history."""
-        self._reconcile_state()
         investigation_summary = self._serialize_investigation()
+        current_state_prompt = STATE_PROMPTS.get(self.state, STATE_PROMPTS[DEFAULT_STATE])
         messages = [
-            {"role": "system", "content": STATE_PROMPTS[self.state]},
+            {"role": "system", "content": current_state_prompt},
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "system", "content": investigation_summary},
             {"role": "user", "content": str(message).strip()},
@@ -140,11 +303,11 @@ class Api:
     def respond(self, message):
         if not message or not str(message).strip():
             return {"reply": "Please enter a message.", "steps": []}
-        # print(self.investigating_obj)
-        self.chat_history.extend(self.build_messages(message))
 
-        with open("chat_history.json", "w") as f:
-            json.dump(self.chat_history, f, indent=4)
+        normalized_message = str(message).strip()
+        if not self._is_controller_prompt(normalized_message) and not self._is_internal_investigation_payload(normalized_message):
+            self.chat_history.append({"role": "user", "content": normalized_message})
+            self.save_current_session()
 
         candidate_models = []
         if self.model:
@@ -157,17 +320,16 @@ class Api:
         for model_name in candidate_models:
             try:
                 response = chat(
-    model=model_name,
-    messages=self.build_messages(message),
-    format=JSON_SCHEMA,
-    stream=False,
-    think=False,
-    keep_alive=-1,
-    options={
-        "num_thread": 4,
-        "num_ctx": 4096,
-    }
-)
+                    model=model_name,
+                    messages=self.build_messages(message),
+                    format=JSON_SCHEMA,
+                    stream=False,
+                    think=False,
+                    keep_alive=-1,
+                    options = {
+    "num_thread": 4
+}
+                )
 
                 content = (
                     response.get("message", {}).get("content", "")
@@ -176,9 +338,16 @@ class Api:
                 )
 
                 if content:
-                    self.chat_history.extend([{"role": "assistant", "content": content}])
+                    assistant_payload = content
+                    try:
+                        assistant_payload = json.loads(content)
+                    except json.JSONDecodeError:
+                        assistant_payload = content
+
+                    self.chat_history.append({"role": "assistant", "content": assistant_payload})
                     self.model = model_name
                     parsed = self.parse_response(content)
+                    self.save_current_session()
 
                     response_data = {
                         "reply": parsed.get("reply", ""),
@@ -219,7 +388,7 @@ Command:
 Output:
 {output_text}
 
-Do NOT repeat the same command immediately on the next step unless the result has changed.
+Do NOT repeat this command unless the result has changed.
 Choose the next diagnostic step based on the above output.
 """
         return {
@@ -230,6 +399,10 @@ Choose the next diagnostic step based on the above output.
 
     def _record_command(self, command, success, output):
         executions = self.investigating_obj.setdefault("executed_commands", [])
+        for entry in executions:
+            if entry.get("command") == command:
+                return
+
         execution = {
             "command": command,
             "success": success,
@@ -239,12 +412,10 @@ Choose the next diagnostic step based on the above output.
         executions.append(execution)
 
     def _should_run_command(self, command):
-        executions = self.investigating_obj.get("executed_commands", [])
-        if not executions:
-            return True
-
-        last_command = executions[-1].get("command") if isinstance(executions[-1], dict) else None
-        return last_command != command
+        for entry in self.investigating_obj.get("executed_commands", []):
+            if entry.get("command") == command:
+                return False
+        return True
 
     def run_command(self, command, use_sudo=False):
         """Execute a shell command once per investigation object state."""
