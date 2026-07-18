@@ -1,9 +1,10 @@
-"""Dedicated JSON-backed session manager for persisted chat sessions."""
+"""SQLite-backed session manager for persisted chat sessions."""
 
 from __future__ import annotations
 
 import copy
 import json
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -11,30 +12,70 @@ from uuid import uuid4
 
 
 class SessionManager:
-    """Manage session records in a single JSON store."""
+    """Manage session records in a single SQLite database file."""
 
     def __init__(self, store_path: str | Path | None = None):
-        self.store_path = Path(store_path) if store_path is not None else Path(__file__).resolve().parent / "sessions_store.json"
+        self.store_path = Path(store_path) if store_path is not None else Path(__file__).resolve().parent / "sessions.db"
         self.store_path.parent.mkdir(parents=True, exist_ok=True)
-        if not self.store_path.exists():
-            self.store_path.write_text(json.dumps({}, indent=2), encoding="utf-8")
+        self._ensure_schema()
+        self._migrate_legacy_json_store()
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.store_path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _ensure_schema(self) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sessions (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    created TEXT NOT NULL,
+                    modified TEXT NOT NULL,
+                    chatHistory TEXT NOT NULL,
+                    investigation TEXT NOT NULL,
+                    isContinue INTEGER NOT NULL
+                )
+                """
+            )
 
     def _load_store(self) -> dict[str, dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, title, created, modified, chatHistory, investigation, isContinue FROM sessions"
+            ).fetchall()
+
+        store: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            store[row["id"]] = {
+                "id": row["id"],
+                "title": row["title"],
+                "created": row["created"],
+                "modified": row["modified"],
+                "chatHistory": json.loads(row["chatHistory"]),
+                "investigation": json.loads(row["investigation"]),
+                "isContinue": bool(row["isContinue"]),
+            }
+        return store
+
+    def _migrate_legacy_json_store(self) -> None:
+        legacy_path = self.store_path.parent / "sessions_store.json"
+        if not legacy_path.exists() or self.store_path.exists() and self.list_sessions():
+            return
+
         try:
-            with self.store_path.open("r", encoding="utf-8") as handle:
-                raw = json.load(handle)
-                if isinstance(raw, dict):
-                    return raw
-        except json.JSONDecodeError:
-            pass
+            with legacy_path.open("r", encoding="utf-8") as handle:
+                legacy_store = json.load(handle)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return
 
-        self.store_path.write_text(json.dumps({}, indent=2), encoding="utf-8")
-        return {}
+        if not isinstance(legacy_store, dict):
+            return
 
-    def _write_store(self, store: dict[str, dict[str, Any]]) -> None:
-        with self.store_path.open("w", encoding="utf-8") as handle:
-            json.dump(store, handle, indent=2, ensure_ascii=False)
-            handle.write("\n")
+        for legacy_session in legacy_store.values():
+            self.create_session(legacy_session)
 
     def _normalize_session(self, session: dict[str, Any] | None) -> dict[str, Any]:
         now = datetime.now(timezone.utc).isoformat()
@@ -51,31 +92,78 @@ class SessionManager:
         return normalized
 
     def create_session(self, session: dict[str, Any] | None = None) -> dict[str, Any]:
-        store = self._load_store()
         normalized = self._normalize_session(session)
         normalized["id"] = str(normalized["id"] or uuid4())
         normalized["created"] = str(normalized["created"] or datetime.now(timezone.utc).isoformat())
         normalized["modified"] = str(normalized["modified"] or normalized["created"])
-        store[normalized["id"]] = normalized
-        self._write_store(store)
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO sessions (id, title, created, modified, chatHistory, investigation, isContinue)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    normalized["id"],
+                    normalized["title"],
+                    normalized["created"],
+                    normalized["modified"],
+                    json.dumps(normalized["chatHistory"], ensure_ascii=False),
+                    json.dumps(normalized["investigation"], ensure_ascii=False),
+                    int(normalized["isContinue"]),
+                ),
+            )
+
         return copy.deepcopy(normalized)
 
     def save_session(self, session: dict[str, Any]) -> dict[str, Any]:
-        store = self._load_store()
         normalized = self._normalize_session(session)
         normalized["modified"] = datetime.now(timezone.utc).isoformat()
         if not normalized["id"]:
             normalized["id"] = str(uuid4())
-        store[normalized["id"]] = normalized
-        self._write_store(store)
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO sessions (id, title, created, modified, chatHistory, investigation, isContinue)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    normalized["id"],
+                    normalized["title"],
+                    normalized["created"],
+                    normalized["modified"],
+                    json.dumps(normalized["chatHistory"], ensure_ascii=False),
+                    json.dumps(normalized["investigation"], ensure_ascii=False),
+                    int(normalized["isContinue"]),
+                ),
+            )
+
         return copy.deepcopy(normalized)
 
     def load_session(self, session_id: str) -> dict[str, Any] | None:
-        store = self._load_store()
-        session = store.get(str(session_id))
-        if session is None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, title, created, modified, chatHistory, investigation, isContinue
+                FROM sessions
+                WHERE id = ?
+                """,
+                (str(session_id),),
+            ).fetchone()
+
+        if row is None:
             return None
-        return copy.deepcopy(session)
+
+        return {
+            "id": row["id"],
+            "title": row["title"],
+            "created": row["created"],
+            "modified": row["modified"],
+            "chatHistory": json.loads(row["chatHistory"]),
+            "investigation": json.loads(row["investigation"]),
+            "isContinue": bool(row["isContinue"]),
+        }
 
     def list_sessions(self) -> list[dict[str, Any]]:
         store = self._load_store()
@@ -84,12 +172,9 @@ class SessionManager:
         return sessions
 
     def delete_session(self, session_id: str) -> bool:
-        store = self._load_store()
-        removed = store.pop(str(session_id), None)
-        if removed is None:
-            return False
-        self._write_store(store)
-        return True
+        with self._connect() as conn:
+            cursor = conn.execute("DELETE FROM sessions WHERE id = ?", (str(session_id),))
+        return cursor.rowcount > 0
 
     def rename_session(self, session_id: str, title: str) -> dict[str, Any] | None:
         session = self.load_session(session_id)

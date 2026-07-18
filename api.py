@@ -27,7 +27,7 @@ class Api:
         self.investigation = InvestigationState()
         self.input_queue = queue.Queue()
         self.continue_event = False
-        self.session_manager = SessionManager(Path(__file__).resolve().parent / "sessions_store.json")
+        self.session_manager = SessionManager(Path(__file__).resolve().parent / "sessions.db")
 
     @property
     def investigating_obj(self):
@@ -372,10 +372,9 @@ class Api:
         return {"reply": "I couldn't generate a response.", "steps": []}
 
     def report_command_output(self, command, output, success):
-        """Record command execution and prepare the next prompt without mutating chat history."""
+        """Prepare the next prompt without mutating the visible chat history."""
         status = "succeeded" if success else "failed"
         output_text = str(output or "").strip() or "(no output)"
-        self._record_command(command, success, output_text)
 
         next_prompt = f"""
 The requested command has finished.
@@ -399,10 +398,6 @@ Choose the next diagnostic step based on the above output.
 
     def _record_command(self, command, success, output):
         executions = self.investigating_obj.setdefault("executed_commands", [])
-        for entry in executions:
-            if entry.get("command") == command:
-                return
-
         execution = {
             "command": command,
             "success": success,
@@ -412,15 +407,17 @@ Choose the next diagnostic step based on the above output.
         executions.append(execution)
 
     def _should_run_command(self, command):
-        for entry in self.investigating_obj.get("executed_commands", []):
-            if entry.get("command") == command:
-                return False
-        return True
+        executions = self.investigating_obj.get("executed_commands", [])
+        if not executions:
+            return True
+
+        last_entry = executions[-1]
+        return not (isinstance(last_entry, dict) and last_entry.get("command") == command)
 
     def run_command(self, command, use_sudo=False):
-        """Execute a shell command once per investigation object state."""
+        """Execute a shell command unless the same command was just run in the immediately previous step."""
         if not self._should_run_command(command):
-            return {"success": False, "output": "", "error": "Command already executed", "return_code": -1}
+            return {"success": False, "output": "", "error": "Command already executed consecutively", "return_code": -1}
 
         try:
             if use_sudo:

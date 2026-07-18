@@ -1050,6 +1050,10 @@
       chatMessages.innerHTML = '';
     }
 
+    function clearTerminalView() {
+      terminalWindow.innerHTML = '';
+    }
+
     function isControllerPrompt(text) {
       if (typeof text !== 'string') {
         return false;
@@ -1070,6 +1074,20 @@
       return commands;
     }
 
+    function renderTerminalHistory() {
+      clearTerminalView();
+      const executedCommands = Array.isArray(window.investigating_obj?.executed_commands)
+        ? window.investigating_obj.executed_commands
+        : [];
+
+      executedCommands.forEach((entry) => {
+        if (!entry || typeof entry.command !== 'string') {
+          return;
+        }
+        addTerminalOutput(entry.command, entry.output || '', entry.success === false);
+      });
+    }
+
     function renderSessionHistory(history) {
       clearChatView();
       if (!Array.isArray(history)) {
@@ -1087,6 +1105,7 @@
         }
       });
       chatMessages.scrollTop = chatMessages.scrollHeight;
+      renderTerminalHistory();
     }
 
     function renderSessionList() {
@@ -1139,6 +1158,7 @@
                 window.investigating_obj = result.investigating_obj || result.investigation || {};
                 setSessionTitle(result.title || 'Loaded Session');
                 renderSessionHistory(result.chat_history || []);
+                renderTerminalHistory();
                 sidebar.classList.remove('is-session-mode');
                 sessionsOpen = false;
               }
@@ -1189,19 +1209,11 @@
     }
 
     function addLogOutput(message, isError = false) {
-      const line = document.createElement('div');
-      line.className = 'terminal-res';
       if (isError) {
-        line.style.color = '#f85149';
+        console.error(message);
+      } else {
+        console.log(message);
       }
-      line.textContent = `[log] ${message}`;
-      terminalWindow.appendChild(line);
-
-      const timeDiv = document.createElement('span');
-      timeDiv.className = 'terminal-time';
-      timeDiv.textContent = formatTime();
-      terminalWindow.appendChild(timeDiv);
-      terminalWindow.scrollTop = terminalWindow.scrollHeight;
     }
 
     function populateAgentContent(container, response) {

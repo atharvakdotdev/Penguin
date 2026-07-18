@@ -1,7 +1,11 @@
 import importlib.util
+import sqlite3
+import subprocess
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+from session_manager import SessionManager
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("penguin_app", ROOT / "app.py")
@@ -10,14 +14,48 @@ SPEC.loader.exec_module(module)
 
 
 class ContextFlowTests(unittest.TestCase):
-    def test_report_command_output_records_execution_and_keeps_history_conversation_only(self):
+    def test_duplicate_commands_are_only_blocked_when_run_back_to_back(self):
+        api = module.Api()
+
+        api._record_command("echo hi", True, "first")
+        self.assertFalse(api._should_run_command("echo hi"))
+
+        api._record_command("echo something-else", True, "second")
+        self.assertTrue(api._should_run_command("echo hi"))
+
+    def test_sqlite_db_store_round_trip(self):
+        store_path = ROOT / "sessions.db"
+        if store_path.exists():
+            store_path.unlink()
+
+        manager = SessionManager(store_path)
+        created = manager.create_session({
+            "id": "db-only-session",
+            "title": "db-only chat",
+            "chatHistory": [{"role": "user", "content": "hello"}],
+            "investigation": {"issue": "db only"},
+            "isContinue": False,
+        })
+
+        with sqlite3.connect(store_path) as conn:
+            rows = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'"
+            ).fetchall()
+
+        self.assertTrue(rows)
+        self.assertEqual(created["title"], "db-only chat")
+        self.assertEqual(manager.load_session(created["id"])["title"], "db-only chat")
+
+    def test_run_command_records_execution_and_keeps_history_conversation_only(self):
         api = module.Api()
         api.chat_history = [{"role": "user", "content": "hello"}]
 
-        result = api.report_command_output("echo hi", "hi", True)
+        result = api.run_command("echo hi")
+        prompt = api.report_command_output("echo hi", result["output"], result["success"])
 
-        self.assertEqual(result["status"], "reported")
-        self.assertIn("echo hi", result["next_prompt"])
+        self.assertTrue(result["success"])
+        self.assertEqual(prompt["status"], "reported")
+        self.assertIn("echo hi", prompt["next_prompt"])
         self.assertEqual(api.chat_history, [{"role": "user", "content": "hello"}])
         self.assertEqual(api.investigating_obj["executed_commands"][-1]["command"], "echo hi")
 
