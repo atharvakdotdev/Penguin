@@ -90,7 +90,7 @@ class Api:
         return cleaned
 
     def _derive_session_title(self):
-        for entry in reversed(self.chat_history):
+        for entry in self.chat_history:
             if entry.get("role") == "user" and entry.get("content"):
                 content = str(entry["content"]).strip()
                 return content[:30] + ("..." if len(content) > 30 else "")
