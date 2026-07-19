@@ -198,6 +198,47 @@ class Api:
             "title": created["title"],
         }
 
+    def list_models(self):
+        installed_models = []
+        try:
+            result = subprocess.run(
+                ["ollama", "list"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode == 0:
+                for raw_line in result.stdout.splitlines():
+                    line = raw_line.strip()
+                    if not line or line.startswith("NAME"):
+                        continue
+                    parts = line.split()
+                    if parts:
+                        installed_models.append(parts[0])
+        except FileNotFoundError:
+            installed_models = []
+
+        if self.model and self.model not in installed_models:
+            installed_models.insert(0, self.model)
+
+        if not installed_models:
+            installed_models = [self.model or DEFAULT_MODEL]
+
+        unique_models = []
+        for model_name in installed_models:
+            if model_name not in unique_models:
+                unique_models.append(model_name)
+
+        return unique_models
+
+    def set_model(self, model_name):
+        cleaned = str(model_name or "").strip()
+        if not cleaned:
+            return {"status": "error", "message": "No model selected.", "model": self.model}
+
+        self.model = cleaned
+        return {"status": "ok", "model": self.model}
+
     def _new_investigation(self):
         return self.investigation.new_investigation()
 

@@ -91,6 +91,14 @@
       flex-direction: column;
       padding: 20px;
       flex-shrink: 0;
+      transition: width 0.28s ease, padding 0.28s ease;
+      overflow: hidden;
+    }
+
+    .sidebar.is-collapsed {
+      width: 0;
+      padding: 0;
+      border-right: none;
     }
 
     .logo-container {
@@ -102,6 +110,41 @@
       font-family: 'JetBrains Mono', monospace;
       font-weight: 700;
       font-size: 1.1rem;
+      transition: opacity 0.22s ease;
+    }
+
+    .sidebar.is-collapsed .logo-container {
+      justify-content: center;
+    }
+
+    .sidebar.is-collapsed .logo-container > span,
+    .sidebar.is-collapsed .logo-subtitle,
+    .sidebar.is-collapsed .btn-new-session > span,
+    .sidebar.is-collapsed .nav-item > span,
+    .sidebar.is-collapsed .system-overview,
+    .sidebar.is-collapsed .agent-status > span,
+    .sidebar.is-collapsed .quick-actions,
+    .sidebar.is-collapsed .sessions-panel {
+      display: none;
+    }
+
+    .sidebar.is-collapsed .btn-new-session {
+      justify-content: center;
+      padding: 10px;
+    }
+
+    .sidebar.is-collapsed .nav-item {
+      justify-content: center;
+      padding: 10px 8px;
+    }
+
+    .sidebar.is-collapsed .nav-item svg {
+      margin: 0;
+    }
+
+    .sidebar.is-collapsed .agent-status {
+      justify-content: center;
+      padding-top: 12px;
     }
 
     .btn-new-session {
@@ -346,6 +389,29 @@
     .control-btn {
       color: var(--text-dim);
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.02);
+      transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+    }
+
+    .control-btn:hover {
+      color: var(--accent-green);
+      border-color: rgba(63, 185, 80, 0.5);
+      background: rgba(63, 185, 80, 0.08);
+    }
+
+    .sidebar-toggle-icon {
+      transition: transform 0.2s ease;
+    }
+
+    #sidebarToggle.is-closed .sidebar-toggle-icon {
+      transform: rotate(180deg);
     }
 
     .chat-scroll-area {
@@ -587,6 +653,35 @@
       flex-direction: column;
       gap: 30px;
       overflow-y: auto;
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .right-panel-resizer {
+      position: absolute;
+      top: 0;
+      left: -5px;
+      width: 10px;
+      height: 100%;
+      cursor: col-resize;
+      user-select: none;
+    }
+
+    .right-panel-resizer:hover::before {
+      opacity: 1;
+    }
+
+    .right-panel-resizer::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 2px;
+      height: 100%;
+      background: var(--border-color);
+      opacity: 0.6;
+      transition: opacity 0.18s ease;
     }
 
     .model-selector {
@@ -596,9 +691,39 @@
       border-radius: 6px;
       font-size: 0.8rem;
       display: flex;
-      justify-content: space-between;
+      gap: 10px;
       align-items: center;
       color: var(--text-main);
+    }
+
+    .model-selector-label {
+      color: var(--text-dim);
+      white-space: nowrap;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+
+    .model-select {
+      width: 100%;
+      min-width: 0;
+      background: transparent;
+      border: none;
+      color: var(--text-main);
+      font: inherit;
+      outline: none;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      padding-right: 18px;
+      background-image: linear-gradient(45deg, transparent 50%, var(--text-dim) 50%), linear-gradient(135deg, var(--text-dim) 50%, transparent 50%);
+      background-position: calc(100% - 12px) 50%, calc(100% - 7px) 50%;
+      background-size: 5px 5px, 5px 5px;
+      background-repeat: no-repeat;
+    }
+
+    .model-select:focus {
+      color: var(--accent-green);
     }
 
     .plan-steps {
@@ -717,7 +842,7 @@
           </svg>
           <span>LINUX AGENT</span>
         </div>
-        <p style="font-size: 0.7rem; color: var(--text-dim); margin-top: -15px; margin-bottom: 25px;">Autonomous Linux
+        <p class="logo-subtitle" style="font-size: 0.7rem; color: var(--text-dim); margin-top: -15px; margin-bottom: 25px;">Autonomous Linux
           Troubleshooter</p>
         <a class="btn-new-session" id="newSessionButton" href="#">
           <span>New Session</span>
@@ -770,126 +895,7 @@
             Models
           </li>
         </ul>
-        <div class="system-overview">
-          <span class="section-title">System Overview</span>
-          <div class="stat-row"><span class="stat-label">Distro</span><span class="stat-value">Ubuntu 24.04 LTS</span>
-          </div>
-          <div class="stat-row"><span class="stat-label">Kernel</span><span class="stat-value">6.8.0-31-generic</span>
-          </div>
-          <div class="stat-row"><span class="stat-label">Uptime</span><span class="stat-value">2h 14m</span></div>
-          <div class="stat-row"><span class="stat-label">Shell</span><span class="stat-value">bash 5.2.21</span></div>
-          <div class="stat-row"><span class="stat-label">Hostname</span><span class="stat-value">mylinux</span></div>
-          <div class="stat-row"><span class="stat-label">CPU</span><span class="stat-value">Intel i3-1005G1</span></div>
-          <div class="stat-row"><span class="stat-label">Memory</span><span class="stat-value">4.1 / 11.5 GB
-              (36%)</span></div>
-          <div class="stat-row"><span class="stat-label">Disk (/)</span><span class="stat-value">38.2 / 116.2 GB
-              (33%)</span></div>
-        </div>
-        <div class="agent-status">
-          <div class="status-dot"></div>
-          Agent: Online
-        </div>
-        <div class="quick-actions" style="display: flex; gap: 8px; margin-top: 20px;">
-          <div class="action-btn" style="flex: 1; justify-content: center;"><svg fill="none" height="16"
-              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24"
-              width="16" xmlns="http://www.w3.org/2000/svg">
-              <rect height="4" rx="1" ry="1" width="8" x="8" y="2"></rect>
-              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
-              <path d="M9 14h6"></path>
-              <path d="M9 10h6"></path>
-              <path d="M9 18h6"></path>
-            </svg></div>
-          <div class="action-btn" style="flex: 1; justify-content: center;"><svg fill="none" height="16"
-              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24"
-              width="16" xmlns="http://www.w3.org/2000/svg">
-              <path d="M22 12h-4l-3 9L9 3l-3 9H2"></path>
-            </svg></div>
-          <div class="action-btn" style="flex: 1; justify-content: center;"><svg fill="none" height="16"
-              stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24"
-              width="16" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"></path>
-            </svg></div>
-        </div>
-      </aside>
-      <!-- END: Sidebar -->
-      <!-- BEGIN: Main Area -->
-      <main class="main-container">
-        <div class="top-bar">
-          <div class="session-info">
-            <svg fill="none" height="16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
-              stroke-width="2" viewbox="0 0 24 24" width="16" xmlns="http://www.w3.org/2000/svg">
-              <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path>
-              <polyline points="14 2 14 8 20 8"></polyline>
-            </svg>
-            <span data-session-title>Live Session</span>
-            <span class="tag-active">ACTIVE</span>
-          </div>
-          
-        </div>
-        <div id="chatMessages" class="chat-scroll-area">
-          <div class="message-block">
-            <div class="message-header">
-              <span class="agent-label">
-                <svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
-                  stroke-width="2" viewbox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg">
-                  <path d="m16 18 6-6-6-6"></path>
-                  <path d="m8 6-6 6 6 6"></path>
-                  <path d="m14.5 4-5 16"></path>
-                </svg>
-                LINUX AGENT
-              </span>
-              <span class="timestamp">now</span>
-            </div>
-            <div class="message-content">
-              I’m ready to help with Linux troubleshooting. Ask me anything.
-            </div>
-          </div>
-        </div>
-        <div class="input-wrapper">
-          <div class="chat-input-container">
-            <input id="chatInput" placeholder="Ask me to fix your Linux issue..." type="text" />
-            <button id="sendButton" type="button" style="background: transparent; border: none; color: var(--accent-green); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px;">
-              <svg fill="none" height="20" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
-                stroke-width="2" viewbox="0 0 24 24" width="20" xmlns="http://www.w3.org/2000/svg">
-                <line x1="22" x2="11" y1="2" y2="13"></line>
-                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-              </svg>
-            </button>
-          </div>
-          <div class="chat-actions">
-            <button class="action-btn"><svg fill="none" height="14" stroke="currentColor" stroke-linecap="round"
-                stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14"
-                xmlns="http://www.w3.org/2000/svg">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" x2="12" y1="15" y2="3"></line>
-              </svg> Attach Log</button>
-            <button class="action-btn"><svg fill="none" height="14" stroke="currentColor" stroke-linecap="round"
-                stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14"
-                xmlns="http://www.w3.org/2000/svg">
-                <path d="M21 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-2"></path>
-                <path d="M16 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z"></path>
-                <path d="M3 7h18"></path>
-              </svg> Select Context</button>
-            <button class="action-btn btn-stop"><svg fill="none" height="14" stroke="currentColor"
-                stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14"
-                xmlns="http://www.w3.org/2000/svg">
-                <rect height="12" rx="2" width="12" x="6" y="6"></rect>
-              </svg> Stop Agent</button>
-          </div>
-        </div>
-      </main>
-      <!-- END: Main Area -->
-      <!-- BEGIN: Right Inspector -->
-      <aside class="right-panel">
-        <div class="model-selector">
-          <span>Model: <strong style="font-weight: 500;">gemma3-tools:4b</strong></span>
-          <svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
-            stroke-width="2" viewbox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg">
-            <path d="m6 9 6 6 6-6"></path>
-          </svg>
-        </div>
-        <div class="plan-steps">
+<div class="plan-steps">
           <span class="section-title">PLAN / STEPS</span>
           <div class="plan-item done" data-step="0">
             <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -975,6 +981,90 @@
             </svg>
           </div>
         </div>
+        
+      </aside>
+      <!-- END: Sidebar -->
+      <!-- BEGIN: Main Area -->
+      <main class="main-container">
+        <div class="top-bar">
+          <div class="session-info">
+            <button class="control-btn" id="sidebarToggle" type="button" aria-label="Collapse sidebar">
+              <svg class="sidebar-toggle-icon" fill="none" height="16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+                stroke-width="2" viewbox="0 0 24 24" width="16" xmlns="http://www.w3.org/2000/svg">
+                <path d="m15 18-6-6 6-6"></path>
+              </svg>
+            </button>
+            <svg fill="none" height="16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+              stroke-width="2" viewbox="0 0 24 24" width="16" xmlns="http://www.w3.org/2000/svg">
+              <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+            <span data-session-title>Live Session</span>
+            <span class="tag-active">ACTIVE</span>
+          </div>
+        </div>
+        <div id="chatMessages" class="chat-scroll-area">
+          <div class="message-block">
+            <div class="message-header">
+              <span class="agent-label">
+                <svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+                  stroke-width="2" viewbox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg">
+                  <path d="m16 18 6-6-6-6"></path>
+                  <path d="m8 6-6 6 6 6"></path>
+                  <path d="m14.5 4-5 16"></path>
+                </svg>
+                LINUX AGENT
+              </span>
+              <span class="timestamp">now</span>
+            </div>
+            <div class="message-content">
+              I’m ready to help with Linux troubleshooting. Ask me anything.
+            </div>
+          </div>
+        </div>
+        <div class="input-wrapper">
+          <div class="chat-input-container">
+            <input id="chatInput" placeholder="Ask me to fix your Linux issue..." type="text" />
+            <button id="sendButton" type="button" style="background: transparent; border: none; color: var(--accent-green); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px;">
+              <svg fill="none" height="20" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+                stroke-width="2" viewbox="0 0 24 24" width="20" xmlns="http://www.w3.org/2000/svg">
+                <line x1="22" x2="11" y1="2" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+            </button>
+          </div>
+          <div class="chat-actions">
+            <button class="action-btn"><svg fill="none" height="14" stroke="currentColor" stroke-linecap="round"
+                stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14"
+                xmlns="http://www.w3.org/2000/svg">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" x2="12" y1="15" y2="3"></line>
+              </svg> Attach Log</button>
+            <button class="action-btn"><svg fill="none" height="14" stroke="currentColor" stroke-linecap="round"
+                stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14"
+                xmlns="http://www.w3.org/2000/svg">
+                <path d="M21 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-2"></path>
+                <path d="M16 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z"></path>
+                <path d="M3 7h18"></path>
+              </svg> Select Context</button>
+            <button class="action-btn btn-stop"><svg fill="none" height="14" stroke="currentColor"
+                stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14"
+                xmlns="http://www.w3.org/2000/svg">
+                <rect height="12" rx="2" width="12" x="6" y="6"></rect>
+              </svg> Stop Agent</button>
+          </div>
+        </div>
+      </main>
+      <!-- END: Main Area -->
+      <!-- BEGIN: Right Inspector -->
+      <aside class="right-panel">
+        <div class="right-panel-resizer" id="rightPanelResizer" aria-hidden="true"></div>
+        <div class="model-selector">
+          <label class="model-selector-label" for="modelSelect">Model:</label>
+          <select class="model-select" id="modelSelect" aria-label="Select Ollama model"></select>
+        </div>
+        
         <div class="command-output-wrapper">
           <div class="terminal-header">
             <span class="section-title" style="margin-bottom: 0;">COMMAND OUTPUT</span>
@@ -1022,6 +1112,10 @@
     const sendButton = document.getElementById('sendButton');
     const terminalWindow = document.querySelector('.terminal-window');
     const sidebar = document.querySelector('.sidebar');
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    const rightPanel = document.querySelector('.right-panel');
+    const rightPanelResizer = document.getElementById('rightPanelResizer');
+    const modelSelect = document.getElementById('modelSelect');
     const newSessionButton = document.getElementById('newSessionButton');
     const sessionsButton = document.querySelector('[data-role="sessions-toggle"]');
     const closeSessionsButton = document.getElementById('closeSessionsButton');
@@ -1225,6 +1319,78 @@
       }).catch((error) => {
         addLogOutput(`Unable to load sessions: ${error.message || error}`, true);
       });
+    }
+
+    async function loadAvailableModels(retries = 12) {
+      if (!modelSelect) {
+        return;
+      }
+
+      if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.list_models !== 'function') {
+        if (retries > 0) {
+          setTimeout(() => loadAvailableModels(retries - 1), 250);
+        }
+        return;
+      }
+
+      modelSelect.innerHTML = '<option>Loading models...</option>';
+
+      try {
+        const models = await window.pywebview.api.list_models();
+        const normalizedModels = Array.isArray(models)
+          ? models
+          : (models && Array.isArray(models.models) ? models.models : []);
+
+        modelSelect.innerHTML = '';
+        if (!normalizedModels.length) {
+          const option = document.createElement('option');
+          option.value = '';
+          option.textContent = 'No models found';
+          modelSelect.appendChild(option);
+          return;
+        }
+
+        normalizedModels.forEach((modelName) => {
+          const option = document.createElement('option');
+          option.value = modelName;
+          option.textContent = modelName;
+          modelSelect.appendChild(option);
+        });
+
+        if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.model === 'string' && window.pywebview.api.model) {
+          modelSelect.value = window.pywebview.api.model;
+        }
+      } catch (error) {
+        modelSelect.innerHTML = '<option>No models found</option>';
+        addLogOutput(`Unable to load Ollama models: ${error.message || error}`, true);
+      }
+    }
+
+    function toggleSidebar() {
+      const isCollapsed = sidebar.classList.toggle('is-collapsed');
+      if (sidebarToggle) {
+        sidebarToggle.classList.toggle('is-closed', isCollapsed);
+        sidebarToggle.setAttribute('aria-label', isCollapsed ? 'Open sidebar' : 'Collapse sidebar');
+      }
+    }
+
+    function startRightPanelResize(event) {
+      if (!rightPanel) return;
+      event.preventDefault();
+
+      const onMove = (moveEvent) => {
+        const width = Math.max(260, Math.min(700, window.innerWidth - moveEvent.clientX));
+        rightPanel.style.width = `${width}px`;
+        document.documentElement.style.setProperty('--right-panel-width', `${width}px`);
+      };
+
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
     }
 
     function toggleSessionsPanel() {
@@ -1610,6 +1776,31 @@
 
     sendButton.addEventListener('click', sendMessage);
 
+    if (sidebarToggle) {
+      sidebarToggle.addEventListener('click', toggleSidebar);
+    }
+
+    if (rightPanelResizer) {
+      rightPanelResizer.addEventListener('mousedown', startRightPanelResize);
+    }
+
+    if (modelSelect) {
+      modelSelect.addEventListener('change', async () => {
+        if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.set_model !== 'function') {
+          return;
+        }
+
+        try {
+          const result = await window.pywebview.api.set_model(modelSelect.value);
+          if (result && result.status === 'ok') {
+            addLogOutput(`Model switched to ${result.model}.`);
+          }
+        } catch (error) {
+          addLogOutput(`Unable to switch model: ${error.message || error}`, true);
+        }
+      });
+    }
+
     sessionsButton.addEventListener('click', toggleSessionsPanel);
     closeSessionsButton.addEventListener('click', toggleSessionsPanel);
 
@@ -1633,6 +1824,8 @@
     });
 
     renderSessionList();
+    window.addEventListener('load', loadAvailableModels);
+    setTimeout(loadAvailableModels, 100);
 
     document.querySelectorAll('.control-btn').forEach((btn) => {
       btn.addEventListener('click', () => {

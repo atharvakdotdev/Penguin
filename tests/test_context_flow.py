@@ -104,6 +104,21 @@ class ContextFlowTests(unittest.TestCase):
         sessions = api.list_sessions()
         self.assertTrue(any(session["title"] for session in sessions))
 
+    @patch("subprocess.run")
+    def test_model_selector_lists_installed_ollama_models(self, mock_run):
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["ollama", "list"],
+            returncode=0,
+            stdout="NAME\tSIZE\tMODIFIED\nqwen2.5-coder:3b\t1.2 GB\t2026-07-19\nllama3.2:3b\t1.1 GB\t2026-07-19\n",
+            stderr="",
+        )
+
+        api = module.Api()
+        models = api.list_models()
+
+        self.assertIn("qwen2.5-coder:3b", models)
+        self.assertIn("llama3.2:3b", models)
+
     def test_assistant_json_is_saved_without_flattening_or_reconstruction(self):
         api = module.Api()
         assistant_payload = {
