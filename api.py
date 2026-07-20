@@ -341,11 +341,43 @@ class Api:
 
         return {"reply": cleaned, "steps": []}
 
-    def respond(self, message):
-        if not message or not str(message).strip():
+    def _compose_user_prompt(self, message, attachment_path=None, attachment_text=None):
+        base_message = str(message or "").strip()
+        attachment_path = str(attachment_path).strip() if attachment_path else None
+
+        if attachment_text is None and attachment_path:
+            attachment_file = Path(attachment_path)
+            if attachment_file.exists():
+                try:
+                    attachment_text = attachment_file.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    attachment_text = ""
+
+        if not attachment_text:
+            return base_message
+
+        cleaned_attachment = str(attachment_text).strip()
+        if not cleaned_attachment:
+            return base_message
+
+        if base_message:
+            return (
+                "Attached log file: "
+                f"{attachment_path or 'selected file'}\n\n"
+                f"{cleaned_attachment}\n\n"
+                f"User message: {base_message}"
+            )
+
+        return f"Attached log file: {attachment_path or 'selected file'}\n\n{cleaned_attachment}"
+
+    def respond(self, message, attachment_path=None, attachment_text=None):
+        if not message and not attachment_path and not attachment_text:
             return {"reply": "Please enter a message.", "steps": []}
 
-        normalized_message = str(message).strip()
+        normalized_message = self._compose_user_prompt(message, attachment_path=attachment_path, attachment_text=attachment_text)
+        if not normalized_message.strip():
+            return {"reply": "Please enter a message.", "steps": []}
+
         if not self._is_controller_prompt(normalized_message) and not self._is_internal_investigation_payload(normalized_message):
             self.chat_history.append({"role": "user", "content": normalized_message})
             self.save_current_session()
@@ -362,7 +394,7 @@ class Api:
             try:
                 response = chat(
                     model=model_name,
-                    messages=self.build_messages(message),
+                    messages=self.build_messages(normalized_message),
                     format=JSON_SCHEMA,
                     stream=False,
                     think=False,

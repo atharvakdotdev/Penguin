@@ -2,3 +2,6 @@
 /__pycache__
 chat_history.json
 sessions.db
+sessions.db
+tests/__pycache__/test_context_flow.cpython-314.pyc
+tests/test_context_flow.py

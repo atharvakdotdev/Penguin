@@ -551,6 +551,32 @@
       display: flex;
       gap: 10px;
       margin-top: 12px;
+      flex-wrap: wrap;
+    }
+
+    .attachment-status {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+      padding: 8px 10px;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background: var(--bg-panel);
+      color: var(--text-dim);
+      font-size: 0.78rem;
+    }
+
+    .attachment-status.is-visible {
+      display: inline-flex;
+    }
+
+    .attachment-clear {
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 0.8rem;
     }
 
     .action-btn {
@@ -1034,7 +1060,8 @@
             </button>
           </div>
           <div class="chat-actions">
-            <button class="action-btn"><svg fill="none" height="14" stroke="currentColor" stroke-linecap="round"
+            <input id="logFileInput" accept=".txt,text/plain" type="file" hidden />
+            <button class="action-btn" id="attachLogButton" type="button"><svg fill="none" height="14" stroke="currentColor" stroke-linecap="round"
                 stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14"
                 xmlns="http://www.w3.org/2000/svg">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -1053,6 +1080,10 @@
                 xmlns="http://www.w3.org/2000/svg">
                 <rect height="12" rx="2" width="12" x="6" y="6"></rect>
               </svg> Stop Agent</button>
+          </div>
+          <div class="attachment-status" id="attachmentStatus" aria-live="polite">
+            <span id="attachmentLabel">No file attached</span>
+            <button class="attachment-clear" id="attachmentClear" type="button">clear</button>
           </div>
         </div>
       </main>
@@ -1110,6 +1141,11 @@
     const chatInput = document.getElementById('chatInput');
     const chatMessages = document.getElementById('chatMessages');
     const sendButton = document.getElementById('sendButton');
+    const attachLogButton = document.getElementById('attachLogButton');
+    const logFileInput = document.getElementById('logFileInput');
+    const attachmentStatus = document.getElementById('attachmentStatus');
+    const attachmentLabel = document.getElementById('attachmentLabel');
+    const attachmentClear = document.getElementById('attachmentClear');
     const terminalWindow = document.querySelector('.terminal-window');
     const sidebar = document.querySelector('.sidebar');
     const sidebarToggle = document.getElementById('sidebarToggle');
@@ -1730,20 +1766,60 @@
       return wrapper;
     }
 
+    let pendingAttachment = null;
+
+    function updateAttachmentStatus(fileName) {
+      if (!attachmentStatus || !attachmentLabel) {
+        return;
+      }
+
+      if (!fileName) {
+        attachmentStatus.classList.remove('is-visible');
+        attachmentLabel.textContent = 'No file attached';
+        return;
+      }
+
+      attachmentStatus.classList.add('is-visible');
+      attachmentLabel.textContent = fileName;
+    }
+
+    function clearPendingAttachment() {
+      pendingAttachment = null;
+      if (logFileInput) {
+        logFileInput.value = '';
+      }
+      updateAttachmentStatus(null);
+    }
+
+    async function pickLogFile() {
+      if (!logFileInput) {
+        return;
+      }
+
+      logFileInput.click();
+    }
+
     function setBusy(isBusy) {
       chatInput.disabled = isBusy;
       sendButton.disabled = isBusy;
       sendButton.style.opacity = isBusy ? '0.6' : '1';
       sendButton.style.cursor = isBusy ? 'wait' : 'pointer';
+      if (attachLogButton) {
+        attachLogButton.disabled = isBusy;
+        attachLogButton.style.opacity = isBusy ? '0.6' : '1';
+      }
     }
 
     async function sendMessage() {
       const text = chatInput.value.trim();
-      if (!text) {
+      if (!text && !pendingAttachment) {
         return;
       }
 
-      appendMessage('user', text);
+      const attachedFileName = pendingAttachment ? pendingAttachment.name : null;
+      const userMessage = text || `Attached log: ${attachedFileName || 'selected file'}`;
+
+      appendMessage('user', userMessage);
       chatInput.value = '';
       setBusy(true);
       const agentMessage = appendMessage('agent', 'Thinking...');
@@ -1753,7 +1829,11 @@
           throw new Error('The desktop API is not available.');
         }
 
-        const response = await window.pywebview.api.respond(text);
+        const response = await window.pywebview.api.respond(
+          userMessage,
+          attachedFileName || null,
+          pendingAttachment ? pendingAttachment.text : null,
+        );
         await processAgentResponse(agentMessage, response);
         if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.save_current_session === 'function') {
           await window.pywebview.api.save_current_session();
@@ -1761,10 +1841,42 @@
       } catch (error) {
         agentMessage.querySelector('.message-content').textContent = `Sorry, the agent could not respond: ${error.message || error}`;
       } finally {
+        clearPendingAttachment();
         setBusy(false);
         chatInput.focus();
         chatMessages.scrollTop = chatMessages.scrollHeight;
       }
+    }
+
+    if (attachLogButton) {
+      attachLogButton.addEventListener('click', pickLogFile);
+    }
+
+    if (logFileInput) {
+      logFileInput.addEventListener('change', async (event) => {
+        const [file] = event.target.files || [];
+        if (!file) {
+          clearPendingAttachment();
+          return;
+        }
+
+        const isTextFile = /\.txt$/i.test(file.name) || file.type === 'text/plain';
+        if (!isTextFile) {
+          addLogOutput('Please select a .txt file to attach.', true);
+          clearPendingAttachment();
+          return;
+        }
+
+        pendingAttachment = {
+          name: file.name,
+          text: await file.text(),
+        };
+        updateAttachmentStatus(file.name);
+      });
+    }
+
+    if (attachmentClear) {
+      attachmentClear.addEventListener('click', clearPendingAttachment);
     }
 
     chatInput.addEventListener('keydown', (event) => {

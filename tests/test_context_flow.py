@@ -192,6 +192,27 @@ Choose the next diagnostic step based on the above output.
         self.assertEqual(len(api.chat_history), 1)
         self.assertEqual(api.chat_history[0]["role"], "assistant")
 
+    def test_respond_includes_attached_text_file_contents_in_user_prompt(self):
+        api = module.Api()
+        attachment_path = ROOT / "tmp_attachment.txt"
+        attachment_path.write_text("log line 1\nlog line 2\n", encoding="utf-8")
+
+        try:
+            with patch("api.chat") as mock_chat:
+                mock_chat.return_value = {
+                    "message": {
+                        "content": '{"reply": "I reviewed the log.", "decision": "diagnose", "steps": [], "investigation_update": {}}'
+                    }
+                }
+                api.respond("Please review this issue.", attachment_path=str(attachment_path))
+
+            self.assertEqual(len(api.chat_history), 2)
+            self.assertEqual(api.chat_history[0]["role"], "user")
+            self.assertIn("Attached log file", api.chat_history[0]["content"])
+            self.assertIn("log line 1", api.chat_history[0]["content"])
+        finally:
+            attachment_path.unlink(missing_ok=True)
+
 
 if __name__ == "__main__":
     unittest.main()
