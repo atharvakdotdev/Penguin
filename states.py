@@ -213,6 +213,9 @@ Never invent another decision.
 IMPORTANT
 ────────────────────
 
+You MUST progress sequentially: understand -> hypothesis -> diagnose -> solve -> verify -> finished.
+Never skip states.
+
 Never generate commands just because you are in DIAGNOSE.
 
 Generate commands ONLY when they reduce uncertainty.
@@ -242,20 +245,23 @@ Understand the problem.
 
 Tasks
 
-• Extract user facts.
-• Record them.
+• Extract the user's issue and populate `issue`.
+• Write a short summary of the problem and populate `summary`.
+• Define the next objective and populate `next_goal`.
+• Extract any obvious user facts and populate `facts`.
+• You MUST populate issue, summary, and next_goal before transitioning.
 • Ask ONE question only if Linux cannot determine the answer.
-• Otherwise continue.
 
 Decision
 
 understand
-Waiting for user information.
+Waiting for user information or if you need to stay in this state.
 
 hypothesis
-Enough information exists.
+Enough information exists and issue, summary, next_goal are populated.
 
-Never diagnose yet.
+You are FORBIDDEN from choosing 'diagnose' in this state.
+Never skip the hypothesis state.
 """,
 
 "hypothesis": r"""
@@ -268,13 +274,19 @@ Generate the most likely explanations.
 Tasks
 
 • Create 1-3 realistic hypotheses.
-• Rank them.
-• Update investigation hypotheses.
-• Select the best one.
+• Rank them with confidence.
+• Update `hypotheses` in investigation_update.
+• Update `next_goal` to focus on verifying the best hypothesis.
 
-If one hypothesis is already strongly supported,
-move directly to diagnose.
+Decision
 
+hypothesis
+Still formulating or ranking hypotheses.
+
+diagnose
+Only choose this AFTER at least one hypothesis exists in your investigation_update.
+
+Do not choose 'diagnose' if the hypotheses list is empty.
 Never repair anything.
 """,
 
@@ -285,7 +297,10 @@ Goal
 
 Reduce uncertainty.
 
-Generate ONE diagnostic command only if it provides new evidence.
+Tasks
+
+• You must have at least one hypothesis before generating commands.
+• Generate ONE diagnostic command to test your leading hypothesis.
 
 Rules
 
@@ -345,23 +360,18 @@ Confirm the repair.
 
 Generate ONE verification command.
 
-If successful
-
-Update
-
-confidence
-
-summary
-
 Decision
 
+verify
+If you are generating or running a verification command to check the repair.
+
 finished
-
-If unsuccessful
-
-decision
+If the verification command has executed and succeeded (repair confirmed).
 
 diagnose
+If the verification command has executed and failed (repair failed).
+
+Rules
 
 Never generate new hypotheses unless verification disproves the current root cause.
 """,

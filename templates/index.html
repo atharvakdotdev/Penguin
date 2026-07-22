@@ -93,6 +93,7 @@
       flex-shrink: 0;
       transition: width 0.28s ease, padding 0.28s ease;
       overflow: hidden;
+      overflow-y: auto;
     }
 
     .sidebar.is-collapsed {
@@ -117,12 +118,12 @@
       justify-content: center;
     }
 
-    .sidebar.is-collapsed .logo-container > span,
+    .sidebar.is-collapsed .logo-container>span,
     .sidebar.is-collapsed .logo-subtitle,
-    .sidebar.is-collapsed .btn-new-session > span,
-    .sidebar.is-collapsed .nav-item > span,
+    .sidebar.is-collapsed .btn-new-session>span,
+    .sidebar.is-collapsed .nav-item>span,
     .sidebar.is-collapsed .system-overview,
-    .sidebar.is-collapsed .agent-status > span,
+    .sidebar.is-collapsed .agent-status>span,
     .sidebar.is-collapsed .quick-actions,
     .sidebar.is-collapsed .sessions-panel {
       display: none;
@@ -171,6 +172,7 @@
       margin-bottom: 40px;
       transition: opacity 0.28s ease, transform 0.28s ease, max-height 0.28s ease, margin-bottom 0.28s ease;
       overflow: hidden;
+      min-height: 0;
     }
 
     .nav-item {
@@ -255,6 +257,7 @@
       margin: 0;
       pointer-events: none;
       transform: translateY(-10px);
+      overflow: hidden;
     }
 
     .sessions-panel {
@@ -265,12 +268,14 @@
       max-height: 0;
       overflow: hidden;
       transform: translateY(-10px);
-      transition: opacity 0.28s ease, transform 0.28s ease, max-height 0.38s ease;
+      transition: opacity 0.28s ease, transform 0.28s ease, max-height 0.38s ease, flex 0.28s ease;
+      flex: 0;
     }
 
     .sidebar.is-session-mode .sessions-panel {
       opacity: 1;
-      max-height: 420px;
+      flex: 1;
+      max-height: none;
       transform: translateY(0);
     }
 
@@ -289,6 +294,8 @@
       gap: 8px;
       overflow-y: auto;
       padding-right: 6px;
+      flex: 1;
+      min-height: 0;
     }
 
     .session-item {
@@ -756,6 +763,7 @@
       display: flex;
       flex-direction: column;
       gap: 16px;
+      min-height: 0;
     }
 
     .plan-item {
@@ -868,7 +876,8 @@
           </svg>
           <span>LINUX AGENT</span>
         </div>
-        <p class="logo-subtitle" style="font-size: 0.7rem; color: var(--text-dim); margin-top: -15px; margin-bottom: 25px;">Autonomous Linux
+        <p class="logo-subtitle"
+          style="font-size: 0.7rem; color: var(--text-dim); margin-top: -15px; margin-bottom: 25px;">Autonomous Linux
           Troubleshooter</p>
         <a class="btn-new-session" id="newSessionButton" href="#">
           <span>New Session</span>
@@ -920,13 +929,14 @@
             </svg>
             Models
           </li>
-        </ul>
-<div class="plan-steps">
+          <div class="plan-steps">
           <span class="section-title">PLAN / STEPS</span>
           <div class="plan-item done" data-step="0">
             <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path>
+              <path
+                d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z">
+              </path>
             </svg>
             <span>1. Gather system information</span>
             <svg fill="currentColor" style="margin-left: auto; color: var(--accent-green);" viewbox="0 0 24 24">
@@ -937,7 +947,8 @@
           <div class="plan-item done" data-step="1">
             <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a2 2 0 0 1-2.83-2.83l-3.94 3.6Z"></path>
+              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a2 2 0 0 1-2.83-2.83l-3.94 3.6Z">
+              </path>
               <path d="m14 14 6.29 6.29a1 1 0 0 0 1.42 0l.3-.3a1 1 0 0 0 0-1.42L15.7 12.3"></path>
               <path d="m7 7-4 4a2 2 0 0 0 0 2.83l3.17 3.17a2 2 0 0 0 2.83 0l4-4"></path>
             </svg>
@@ -1007,7 +1018,9 @@
             </svg>
           </div>
         </div>
+        </ul>
         
+
       </aside>
       <!-- END: Sidebar -->
       <!-- BEGIN: Main Area -->
@@ -1015,8 +1028,9 @@
         <div class="top-bar">
           <div class="session-info">
             <button class="control-btn" id="sidebarToggle" type="button" aria-label="Collapse sidebar">
-              <svg class="sidebar-toggle-icon" fill="none" height="16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
-                stroke-width="2" viewbox="0 0 24 24" width="16" xmlns="http://www.w3.org/2000/svg">
+              <svg class="sidebar-toggle-icon" fill="none" height="16" stroke="currentColor" stroke-linecap="round"
+                stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="16"
+                xmlns="http://www.w3.org/2000/svg">
                 <path d="m15 18-6-6 6-6"></path>
               </svg>
             </button>
@@ -1051,7 +1065,8 @@
         <div class="input-wrapper">
           <div class="chat-input-container">
             <input id="chatInput" placeholder="Ask me to fix your Linux issue..." type="text" />
-            <button id="sendButton" type="button" style="background: transparent; border: none; color: var(--accent-green); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px;">
+            <button id="sendButton" type="button"
+              style="background: transparent; border: none; color: var(--accent-green); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px;">
               <svg fill="none" height="20" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
                 stroke-width="2" viewbox="0 0 24 24" width="20" xmlns="http://www.w3.org/2000/svg">
                 <line x1="22" x2="11" y1="2" y2="13"></line>
@@ -1061,30 +1076,24 @@
           </div>
           <div class="chat-actions">
             <input id="logFileInput" accept=".txt,text/plain" type="file" hidden />
-            <button class="action-btn" id="attachLogButton" type="button"><svg fill="none" height="14" stroke="currentColor" stroke-linecap="round"
-                stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14"
-                xmlns="http://www.w3.org/2000/svg">
+            <button class="action-btn" id="attachLogButton" type="button"><svg fill="none" height="14"
+                stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                viewbox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                 <polyline points="7 10 12 15 17 10"></polyline>
                 <line x1="12" x2="12" y1="15" y2="3"></line>
               </svg> Attach Log</button>
-            <button class="action-btn"><svg fill="none" height="14" stroke="currentColor" stroke-linecap="round"
-                stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14"
-                xmlns="http://www.w3.org/2000/svg">
-                <path d="M21 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-2"></path>
-                <path d="M16 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z"></path>
-                <path d="M3 7h18"></path>
-              </svg> Select Context</button>
+            <div class="attachment-status" id="attachmentStatus" aria-live="polite">
+            <span id="attachmentLabel">No file attached</span>
+            <button class="attachment-clear" id="attachmentClear" type="button">clear</button>
+          </div>
             <button class="action-btn btn-stop"><svg fill="none" height="14" stroke="currentColor"
                 stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="14"
                 xmlns="http://www.w3.org/2000/svg">
                 <rect height="12" rx="2" width="12" x="6" y="6"></rect>
               </svg> Stop Agent</button>
           </div>
-          <div class="attachment-status" id="attachmentStatus" aria-live="polite">
-            <span id="attachmentLabel">No file attached</span>
-            <button class="attachment-clear" id="attachmentClear" type="button">clear</button>
-          </div>
+          
         </div>
       </main>
       <!-- END: Main Area -->
@@ -1095,7 +1104,7 @@
           <label class="model-selector-label" for="modelSelect">Model:</label>
           <select class="model-select" id="modelSelect" aria-label="Select Ollama model"></select>
         </div>
-        
+
         <div class="command-output-wrapper">
           <div class="terminal-header">
             <span class="section-title" style="margin-bottom: 0;">COMMAND OUTPUT</span>
@@ -1254,12 +1263,12 @@
         const payload = (entry && typeof entry.content === 'object' && entry.content !== null)
           ? entry.content
           : (typeof entry.content === 'string' ? (() => {
-              try {
-                return JSON.parse(entry.content);
-              } catch (error) {
-                return null;
-              }
-            })() : null);
+            try {
+              return JSON.parse(entry.content);
+            } catch (error) {
+              return null;
+            }
+          })() : null);
 
         if (payload && typeof payload.decision === 'string') {
           return payload.decision;
@@ -1480,35 +1489,6 @@
           container.appendChild(reply);
         }
 
-        const metaItems = [];
-        if (response.decision) {
-          metaItems.push({ label: 'Decision', value: response.decision });
-        }
-        if (response.investigation_update && typeof response.investigation_update === 'object') {
-          const updateKeys = Object.keys(response.investigation_update || {});
-          if (updateKeys.length) {
-            metaItems.push({ label: 'Investigation', value: updateKeys.join(', ') });
-          }
-        }
-
-        if (metaItems.length) {
-          const metaList = document.createElement('div');
-          metaList.className = 'card-list';
-          metaItems.forEach((item) => {
-            const card = document.createElement('div');
-            card.className = 'card';
-            const title = document.createElement('div');
-            title.className = 'card-header gathering';
-            title.textContent = item.label;
-            const body = document.createElement('div');
-            body.className = 'card-body';
-            body.textContent = item.value;
-            card.appendChild(title);
-            card.appendChild(body);
-            metaList.appendChild(card);
-          });
-          container.appendChild(metaList);
-        }
 
         if (Array.isArray(response.steps) && response.steps.length) {
           const executedCommands = getExecutedCommandSet();
@@ -1538,7 +1518,6 @@
               const allowBtn = document.createElement('button');
               allowBtn.className = 'btn-allow-command';
               const commandAlreadyExecuted = executedCommands.has(step.command.trim());
-              allowBtn.disabled = commandAlreadyExecuted;
               allowBtn.textContent = commandAlreadyExecuted ? '✓ Ran' : '▶ Allow';
               if (commandAlreadyExecuted) {
                 allowBtn.style.borderColor = 'var(--accent-green)';

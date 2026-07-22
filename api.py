@@ -362,10 +362,10 @@ class Api:
 
         if base_message:
             return (
+                f"User message: {base_message}"
                 "Attached log file: "
                 f"{attachment_path or 'selected file'}\n\n"
                 f"{cleaned_attachment}\n\n"
-                f"User message: {base_message}"
             )
 
         return f"Attached log file: {attachment_path or 'selected file'}\n\n{cleaned_attachment}"
@@ -373,7 +373,9 @@ class Api:
     def respond(self, message, attachment_path=None, attachment_text=None):
         if not message and not attachment_path and not attachment_text:
             return {"reply": "Please enter a message.", "steps": []}
-
+        if attachment_path:
+            with open(attachment_path,'r') as f:
+                attachment_text = f.read()
         normalized_message = self._compose_user_prompt(message, attachment_path=attachment_path, attachment_text=attachment_text)
         if not normalized_message.strip():
             return {"reply": "Please enter a message.", "steps": []}
@@ -381,7 +383,16 @@ class Api:
         if not self._is_controller_prompt(normalized_message) and not self._is_internal_investigation_payload(normalized_message):
             self.chat_history.append({"role": "user", "content": normalized_message})
             self.save_current_session()
-
+        if not self.investigating_obj['root_cause']:
+            self.investigating_obj['root_cause'] =  chat(
+                    model="qwen3.5:0.8b",
+                    messages=self.build_messages(normalized_message),
+                    think=False,
+                    options = {
+                    "num_thread": 4
+                    }
+                ).get("message", {}).get("content", "")
+            
         candidate_models = []
         if self.model:
             candidate_models.append(self.model)
