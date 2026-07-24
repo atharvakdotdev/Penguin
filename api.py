@@ -27,6 +27,7 @@ class Api:
         self.investigation = InvestigationState()
         self.input_queue = queue.Queue()
         self.continue_event = False
+        self.auto_allow = False
         self.session_manager = SessionManager(Path(__file__).resolve().parent / "sessions.db")
 
     @property
@@ -46,6 +47,7 @@ class Api:
         self.investigation = InvestigationState()
         self.investigating_obj = self.investigation.new_investigation()
         self.continue_event = False
+        self.auto_allow = False
         self.active_session_id = None
 
     @staticmethod
@@ -106,6 +108,7 @@ class Api:
             "chatHistory": self._sanitize_chat_history(self.chat_history),
             "investigation": copy.deepcopy(self.investigating_obj),
             "isContinue": bool(self.continue_event),
+            "auto_allow": bool(self.auto_allow),
         }
 
     def save_current_session(self, title=None):
@@ -125,6 +128,7 @@ class Api:
             "id": self.active_session_id,
             "title": saved["title"],
             "updated_at": saved["modified"],
+            "auto_allow": self.auto_allow,
         }
 
     def list_sessions(self):
@@ -143,6 +147,7 @@ class Api:
                 "investigating_obj": copy.deepcopy(session.get("investigation", {})),
                 "isContinue": bool(session.get("isContinue", False)),
                 "continue_event": bool(session.get("isContinue", False)),
+                "auto_allow": bool(session.get("auto_allow", False)),
             }
             for session in sessions
         ]
@@ -157,6 +162,7 @@ class Api:
         self.investigation = InvestigationState()
         self.investigating_obj = copy.deepcopy(session.get("investigation", {}))
         self.continue_event = bool(session.get("isContinue", False))
+        self.auto_allow = bool(session.get("auto_allow", False))
         self.state = DEFAULT_STATE
 
         return {
@@ -166,7 +172,14 @@ class Api:
             "chat_history": copy.deepcopy(self.chat_history),
             "investigating_obj": copy.deepcopy(self.investigating_obj),
             "continue_event": self.continue_event,
+            "auto_allow": self.auto_allow,
         }
+
+    def set_auto_allow(self, enabled):
+        self.auto_allow = bool(enabled)
+        if self.active_session_id is not None:
+            self.save_current_session()
+        return {"status": "ok", "auto_allow": self.auto_allow}
 
     def delete_session(self, session_id):
         removed = self.session_manager.delete_session(str(session_id))
@@ -187,6 +200,7 @@ class Api:
                 "chatHistory": [],
                 "investigation": {},
                 "isContinue": False,
+                "auto_allow": False,
             }
         )
         self._reset_runtime_state()
@@ -196,6 +210,7 @@ class Api:
             "session_id": self.active_session_id,
             "id": self.active_session_id,
             "title": created["title"],
+            "auto_allow": False,
         }
 
     def list_models(self):
@@ -254,9 +269,6 @@ class Api:
     def _merge_executed_commands(self, current, updates):
         return self.investigation.merge_executed_commands(current, updates)
 
-    def _infer_root_cause(self):
-        return self.investigation.infer_root_cause()
-
     def _ensure_next_goal(self):
         return self.investigation.ensure_next_goal(self.state)
 
@@ -271,10 +283,12 @@ class Api:
         investigation_summary = self._serialize_investigation()
         current_state_prompt = STATE_PROMPTS.get(self.state, STATE_PROMPTS[DEFAULT_STATE])
         messages = [
-            {"role": "system", "content": current_state_prompt},
             {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": "Chat History" + str(self.chat_history)},
+            {"role": "system", "content": current_state_prompt},
             {"role": "system", "content": investigation_summary},
             {"role": "user", "content": str(message).strip()},
+            
         ]
         return messages
 
@@ -383,15 +397,15 @@ class Api:
         if not self._is_controller_prompt(normalized_message) and not self._is_internal_investigation_payload(normalized_message):
             self.chat_history.append({"role": "user", "content": normalized_message})
             self.save_current_session()
-        if not self.investigating_obj['root_cause']:
-            self.investigating_obj['root_cause'] =  chat(
-                    model="qwen3.5:0.8b",
-                    messages=self.build_messages(normalized_message),
-                    think=False,
-                    options = {
-                    "num_thread": 4
-                    }
-                ).get("message", {}).get("content", "")
+        # if not self.investigating_obj['root_cause']:
+        #     self.investigating_obj['root_cause'] =  chat(
+        #             model="qwen3.5:0.8b",
+        #             messages=normalized_message,
+        #             think=False,
+        #             options = {
+        #             "num_thread": 4
+        #             }
+        #         ).get("message", {}).get("content", "")
             
         candidate_models = []
         if self.model:
@@ -411,8 +425,8 @@ class Api:
                     think=False,
                     keep_alive=-1,
                     options = {
-    "num_thread": 4
-}
+                        "num_thread": 4
+                    }
                 )
 
                 content = (
@@ -440,6 +454,7 @@ class Api:
                         "decision": parsed.get("decision"),
                         "investigation_update": self.investigating_obj,
                         "is_continue": self.continue_event,
+                        "auto_allow": self.auto_allow,
                     }
 
                     if response_data["steps"]:
@@ -512,7 +527,7 @@ Choose the next diagnostic step based on the above output.
                 shell=True,
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=120,
             )
             output = result.stdout or result.stderr or ""
             self._record_command(command, result.returncode == 0, output)

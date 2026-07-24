@@ -388,6 +388,89 @@
       font-weight: 600;
     }
 
+    /* Auto Allow Toggle Switch */
+    .auto-allow-control {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.8rem;
+    }
+
+    .auto-allow-label-text {
+      color: var(--text-main);
+      font-weight: 500;
+    }
+
+    .switch-toggle {
+      position: relative;
+      display: inline-block;
+      width: 36px;
+      height: 20px;
+    }
+
+    .switch-toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider-round {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: var(--border-color);
+      transition: .25s;
+      border-radius: 20px;
+    }
+
+    .slider-round:before {
+      position: absolute;
+      content: "";
+      height: 14px;
+      width: 14px;
+      left: 3px;
+      bottom: 3px;
+      background-color: var(--text-dim);
+      transition: .25s;
+      border-radius: 50%;
+    }
+
+    .switch-toggle input:checked + .slider-round {
+      background-color: var(--accent-green);
+      box-shadow: 0 0 8px var(--accent-green-glow);
+    }
+
+    .switch-toggle input:checked + .slider-round:before {
+      transform: translateX(16px);
+      background-color: #fff;
+    }
+
+    .auto-allow-badge {
+      font-size: 0.68rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      transition: all 0.2s ease;
+    }
+
+    .auto-allow-badge.manual {
+      background: rgba(139, 148, 158, 0.15);
+      color: var(--text-dim);
+      border: 1px solid var(--border-color);
+    }
+
+    .auto-allow-badge.active {
+      background: rgba(63, 185, 80, 0.2);
+      color: var(--accent-green);
+      border: 1px solid var(--accent-green);
+      box-shadow: 0 0 6px var(--accent-green-glow);
+    }
+
     .window-controls {
       display: flex;
       gap: 15px;
@@ -1042,6 +1125,14 @@
             <span data-session-title>Live Session</span>
             <span class="tag-active">ACTIVE</span>
           </div>
+          <div class="auto-allow-control">
+            <span class="auto-allow-label-text">Auto Allow</span>
+            <label class="switch-toggle" for="autoAllowToggle" title="Auto Allow execution mode for terminal commands">
+              <input type="checkbox" id="autoAllowToggle" />
+              <span class="slider-round"></span>
+            </label>
+            <span class="auto-allow-badge manual" id="autoAllowBadge">MANUAL</span>
+          </div>
         </div>
         <div id="chatMessages" class="chat-scroll-area">
           <div class="message-block">
@@ -1167,11 +1258,14 @@
     const sessionList = document.getElementById('sessionList');
     const sessionTitle = document.querySelector('[data-session-title]');
     const planSteps = Array.from(document.querySelectorAll('.plan-item'));
+    const autoAllowToggle = document.getElementById('autoAllowToggle');
+    const autoAllowBadge = document.getElementById('autoAllowBadge');
 
     let currentCommand = null;
     let awaitingNextStep = false;
     let pendingContextPrompt = null;
     let sessionsOpen = false;
+    let autoAllowEnabled = false;
 
     function formatTime() {
       return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -1181,6 +1275,37 @@
       if (sessionTitle) {
         sessionTitle.textContent = title || 'Live Session';
       }
+    }
+
+    function updateAutoAllowUI(enabled) {
+      autoAllowEnabled = Boolean(enabled);
+      if (autoAllowToggle) {
+        autoAllowToggle.checked = autoAllowEnabled;
+      }
+      if (autoAllowBadge) {
+        if (autoAllowEnabled) {
+          autoAllowBadge.textContent = 'AUTO ALLOW';
+          autoAllowBadge.className = 'auto-allow-badge active';
+        } else {
+          autoAllowBadge.textContent = 'MANUAL';
+          autoAllowBadge.className = 'auto-allow-badge manual';
+        }
+      }
+    }
+
+    if (autoAllowToggle) {
+      autoAllowToggle.addEventListener('change', async () => {
+        const enabled = autoAllowToggle.checked;
+        updateAutoAllowUI(enabled);
+        if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.set_auto_allow === 'function') {
+          try {
+            await window.pywebview.api.set_auto_allow(enabled);
+            addLogOutput(`Auto Allow mode ${enabled ? 'enabled' : 'disabled'}.`);
+          } catch (error) {
+            addLogOutput(`Failed to set Auto Allow mode: ${error.message || error}`, true);
+          }
+        }
+      });
     }
 
     function clearChatView() {
@@ -1347,6 +1472,7 @@
               if (result && result.status === 'opened') {
                 window.investigating_obj = result.investigating_obj || result.investigation || {};
                 setSessionTitle(result.title || 'Loaded Session');
+                updateAutoAllowUI(result.auto_allow || false);
                 renderSessionHistory(result.chat_history || []);
                 renderTerminalHistory();
                 sidebar.classList.remove('is-session-mode');
@@ -1481,6 +1607,9 @@
     function populateAgentContent(container, response) {
       container.innerHTML = '';
       if (response && typeof response === 'object') {
+        if (response.auto_allow !== undefined) {
+          updateAutoAllowUI(response.auto_allow);
+        }
         if (response.reply) {
           const reply = document.createElement('div');
           reply.className = 'card-body';
@@ -1494,6 +1623,7 @@
           const executedCommands = getExecutedCommandSet();
           const list = document.createElement('div');
           list.className = 'card-list';
+          let autoTriggered = false;
           response.steps.forEach((step) => {
             const card = document.createElement('div');
             card.className = 'card';
@@ -1528,6 +1658,13 @@
               commandWrapper.appendChild(allowBtn);
 
               card.appendChild(commandWrapper);
+
+              if (autoAllowEnabled && !commandAlreadyExecuted && !autoTriggered) {
+                autoTriggered = true;
+                setTimeout(() => {
+                  executeCommand(allowBtn, step.command, step.requires_sudo || false);
+                }, 300);
+              }
             }
             list.appendChild(card);
           });
@@ -1906,6 +2043,7 @@
         sidebar.classList.remove('is-session-mode');
         sessionsOpen = false;
         clearChatView();
+        updateAutoAllowUI(false);
         appendMessage('agent', 'I’m ready to help with Linux troubleshooting. Ask me anything.');
         setSessionTitle('Live Session');
         addLogOutput(result && result.status ? `New ${result.status} created.` : 'New session created.');

@@ -72,7 +72,8 @@ class ContextFlowTests(unittest.TestCase):
         messages = api.build_messages("What next?")
 
         self.assertEqual(messages[0]["role"], "system")
-        self.assertIn("understand", messages[0]["content"])
+        self.assertIn("Penguin", messages[0]["content"])
+        self.assertIn("UNDERSTAND", messages[1]["content"])
         self.assertIn("network issue", messages[2]["content"])
         self.assertEqual(messages[-1]["content"], "What next?")
 
@@ -212,6 +213,92 @@ Choose the next diagnostic step based on the above output.
             self.assertIn("log line 1", api.chat_history[0]["content"])
         finally:
             attachment_path.unlink(missing_ok=True)
+
+
+    def test_schema_rejects_trailing_whitespace_keys(self):
+        import jsonschema
+        from schemas import JSON_SCHEMA
+
+        # A valid payload
+        valid_payload = {
+            "reply": "Looking into it",
+            "decision": "diagnose",
+            "steps": [],
+            "investigation_update": {
+                "summary": "Checking system log",
+                "root_cause": None
+            }
+        }
+        # Should not raise validation error
+        jsonschema.validate(instance=valid_payload, schema=JSON_SCHEMA)
+
+        # Payload with trailing space in key inside investigation_update
+        invalid_payload = {
+            "reply": "Looking into it",
+            "decision": "diagnose",
+            "steps": [],
+            "investigation_update": {
+                "summary ": "Checking system log"
+            }
+        }
+        with self.assertRaises(jsonschema.ValidationError):
+            jsonschema.validate(instance=invalid_payload, schema=JSON_SCHEMA)
+
+        # Payload with trailing space in root_cause key inside investigation_update
+        invalid_payload2 = {
+            "reply": "Looking into it",
+            "decision": "diagnose",
+            "steps": [],
+            "investigation_update": {
+                "root_cause ": "Problem description"
+            }
+        }
+        with self.assertRaises(jsonschema.ValidationError):
+            jsonschema.validate(instance=invalid_payload2, schema=JSON_SCHEMA)
+
+    def test_python_key_normalization_strips_whitespaces(self):
+        api = module.Api()
+        # Mock raw JSON response from model that somehow has spaces
+        raw_response = """
+        {
+            "reply": "Normalizing keys",
+            "decision": "solve",
+            "steps": [],
+            "investigation_update": {
+                "summary ": "Keys are normalized",
+                "root_cause ": "Config mismatch",
+                "facts": [
+                    {"key ": "port", "value": 80}
+                ],
+                "hypotheses": [
+                    {"name ": "some hypothesis", "confidence ": 0.8, "status ": "confirmed"}
+                ]
+            }
+        }
+        """
+        parsed = api.parse_response(raw_response)
+        
+        # Verify parsed investigation update contains normalized keys
+        self.assertIn("summary", api.investigating_obj)
+        self.assertEqual(api.investigating_obj["summary"], "Keys are normalized")
+        self.assertNotIn("summary ", api.investigating_obj)
+        
+        self.assertIn("root_cause", api.investigating_obj)
+        self.assertEqual(api.investigating_obj["root_cause"], "Config mismatch")
+        self.assertNotIn("root_cause ", api.investigating_obj)
+
+        self.assertIn("port", api.investigating_obj["facts"])
+        self.assertEqual(api.investigating_obj["facts"]["port"], 80)
+        self.assertNotIn("key ", api.investigating_obj["facts"])
+
+        hypotheses = api.investigating_obj["hypotheses"]
+        self.assertEqual(len(hypotheses), 1)
+        self.assertIn("name", hypotheses[0])
+        self.assertEqual(hypotheses[0]["name"], "some hypothesis")
+        self.assertIn("confidence", hypotheses[0])
+        self.assertEqual(hypotheses[0]["confidence"], 0.8)
+        self.assertIn("status", hypotheses[0])
+        self.assertEqual(hypotheses[0]["status"], "confirmed")
 
 
 if __name__ == "__main__":

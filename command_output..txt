@@ -1,0 +1,5 @@
+lecrowpus@lecrowpus-Inspiron-3593:~$ nvim
+Command 'nvim' not found, but can be installed with:
+sudo snap install nvim    # version v0.12.3, or
+sudo apt  install neovim  # version 0.11.6-1
+See 'snap info nvim' for additional versions.

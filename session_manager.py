@@ -36,15 +36,20 @@ class SessionManager:
                     modified TEXT NOT NULL,
                     chatHistory TEXT NOT NULL,
                     investigation TEXT NOT NULL,
-                    isContinue INTEGER NOT NULL
+                    isContinue INTEGER NOT NULL,
+                    auto_allow INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
+            # Migration check for existing databases lacking the auto_allow column
+            columns = [row["name"] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()]
+            if "auto_allow" not in columns:
+                conn.execute("ALTER TABLE sessions ADD COLUMN auto_allow INTEGER NOT NULL DEFAULT 0")
 
     def _load_store(self) -> dict[str, dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT id, title, created, modified, chatHistory, investigation, isContinue FROM sessions"
+                "SELECT id, title, created, modified, chatHistory, investigation, isContinue, auto_allow FROM sessions"
             ).fetchall()
 
         store: dict[str, dict[str, Any]] = {}
@@ -57,6 +62,7 @@ class SessionManager:
                 "chatHistory": json.loads(row["chatHistory"]),
                 "investigation": json.loads(row["investigation"]),
                 "isContinue": bool(row["isContinue"]),
+                "auto_allow": bool(row["auto_allow"]),
             }
         return store
 
@@ -88,6 +94,7 @@ class SessionManager:
             "chatHistory": copy.deepcopy(source.get("chatHistory", [])),
             "investigation": copy.deepcopy(source.get("investigation", {})),
             "isContinue": bool(source.get("isContinue", False)),
+            "auto_allow": bool(source.get("auto_allow", False)),
         }
         return normalized
 
@@ -100,8 +107,8 @@ class SessionManager:
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO sessions (id, title, created, modified, chatHistory, investigation, isContinue)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO sessions (id, title, created, modified, chatHistory, investigation, isContinue, auto_allow)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     normalized["id"],
@@ -111,6 +118,7 @@ class SessionManager:
                     json.dumps(normalized["chatHistory"], ensure_ascii=False),
                     json.dumps(normalized["investigation"], ensure_ascii=False),
                     int(normalized["isContinue"]),
+                    int(normalized["auto_allow"]),
                 ),
             )
 
@@ -125,8 +133,8 @@ class SessionManager:
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO sessions (id, title, created, modified, chatHistory, investigation, isContinue)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO sessions (id, title, created, modified, chatHistory, investigation, isContinue, auto_allow)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     normalized["id"],
@@ -136,6 +144,7 @@ class SessionManager:
                     json.dumps(normalized["chatHistory"], ensure_ascii=False),
                     json.dumps(normalized["investigation"], ensure_ascii=False),
                     int(normalized["isContinue"]),
+                    int(normalized["auto_allow"]),
                 ),
             )
 
@@ -145,7 +154,7 @@ class SessionManager:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT id, title, created, modified, chatHistory, investigation, isContinue
+                SELECT id, title, created, modified, chatHistory, investigation, isContinue, auto_allow
                 FROM sessions
                 WHERE id = ?
                 """,
@@ -163,6 +172,7 @@ class SessionManager:
             "chatHistory": json.loads(row["chatHistory"]),
             "investigation": json.loads(row["investigation"]),
             "isContinue": bool(row["isContinue"]),
+            "auto_allow": bool(row["auto_allow"]),
         }
 
     def list_sessions(self) -> list[dict[str, Any]]:

@@ -9,6 +9,10 @@ JSON_SCHEMA = {
     ],
     "properties": {
 
+        "is_continue": {
+            "type": "boolean"
+        },
+
         "reply": {
             "type": "string",
             "description": "Natural language shown to the user. Never include shell commands."
@@ -108,10 +112,18 @@ JSON_SCHEMA = {
 
         "investigation_update": {
             "type": "object",
-            "additionalProperties": True,
+            "additionalProperties": False,
             "properties": {
 
+                "issue": {
+                    "type": "string"
+                },
+
                 "summary": {
+                    "type": "string"
+                },
+
+                "status": {
                     "type": "string"
                 },
 
@@ -159,7 +171,7 @@ JSON_SCHEMA = {
                     "type": "array",
                     "items": {
                         "type": "object",
-                        "additionalProperties": True,
+                        "additionalProperties": False,
                         "required": [
                             "name",
                             "confidence",
@@ -201,10 +213,52 @@ JSON_SCHEMA = {
                     }
                 },
 
+                "pending_questions": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+
+                "questions_asked": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+
                 "solution": {
                     "type": "array",
                     "items": {
                         "type": "string"
+                    }
+                },
+
+                "executed_commands": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": [
+                            "command",
+                            "success",
+                            "output",
+                            "timestamp"
+                        ],
+                        "properties": {
+                            "command": {
+                                "type": "string"
+                            },
+                            "success": {
+                                "type": "boolean"
+                            },
+                            "output": {
+                                "type": "string"
+                            },
+                            "timestamp": {
+                                "type": "string"
+                            }
+                        }
                     }
                 }
             }
