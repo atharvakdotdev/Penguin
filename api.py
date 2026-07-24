@@ -376,7 +376,7 @@ class Api:
 
         if base_message:
             return (
-                f"User message: {base_message}"
+                f" {base_message} <User message>"
                 "Attached log file: "
                 f"{attachment_path or 'selected file'}\n\n"
                 f"{cleaned_attachment}\n\n"

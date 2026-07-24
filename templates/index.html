@@ -37,24 +37,39 @@
       margin: 0;
       padding: 0;
       scrollbar-width: thin;
+      scrollbar-color: transparent transparent;
+      transition: scrollbar-color 0.25s ease;
+    }
+
+    *:hover {
       scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
     }
 
     *::-webkit-scrollbar {
-      width: 8px;
-      height: 8px;
+      width: 6px;
+      height: 6px;
     }
 
     *::-webkit-scrollbar-track {
-      background: var(--scrollbar-track);
+      background: transparent;
       border-radius: 999px;
+      transition: background 0.25s ease;
+    }
+
+    *:hover::-webkit-scrollbar-track {
+      background: var(--scrollbar-track);
     }
 
     *::-webkit-scrollbar-thumb {
-      background: var(--scrollbar-thumb);
+      background: transparent;
       border-radius: 999px;
-      border: 2px solid transparent;
+      border: 1px solid transparent;
       background-clip: padding-box;
+      transition: background 0.25s ease;
+    }
+
+    *:hover::-webkit-scrollbar-thumb {
+      background: var(--scrollbar-thumb);
     }
 
     *::-webkit-scrollbar-thumb:hover {
@@ -169,7 +184,7 @@
 
     .nav-list {
       list-style: none;
-      margin-bottom: 40px;
+      margin-bottom: 20px;
       transition: opacity 0.28s ease, transform 0.28s ease, max-height 0.28s ease, margin-bottom 0.28s ease;
       overflow: hidden;
       min-height: 0;
@@ -214,8 +229,10 @@
       color: var(--text-dim);
       text-transform: uppercase;
       font-size: 0.7rem;
+      font-weight: 600;
       letter-spacing: 1px;
-      margin-bottom: 15px;
+      margin-top: 16px;
+      margin-bottom: 12px;
       display: block;
     }
 
@@ -249,6 +266,7 @@
 
     .sidebar.is-session-mode .btn-new-session,
     .sidebar.is-session-mode .nav-list,
+    .sidebar.is-session-mode .plan-steps,
     .sidebar.is-session-mode .system-overview,
     .sidebar.is-session-mode .agent-status,
     .sidebar.is-session-mode .quick-actions {
@@ -284,64 +302,105 @@
       align-items: center;
       justify-content: space-between;
       color: var(--accent-green);
-      font-size: 0.85rem;
+      font-size: 1.15rem;
+      font-weight: 600;
+      padding: 8px 4px 12px 4px;
       margin-bottom: 4px;
+    }
+
+    .sessions-header-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .sessions-header-title svg {
+      width: 22px;
+      height: 22px;
+      color: var(--accent-green);
+      stroke-width: 2.2px;
     }
 
     .session-list {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 6px;
       overflow-y: auto;
-      padding-right: 6px;
+      padding-right: 4px;
       flex: 1;
       min-height: 0;
     }
 
     .session-item {
-      border: 1px solid var(--border-color);
-      background: var(--bg-panel);
-      color: var(--text-main);
-      border-radius: 8px;
+      position: relative;
+      background: transparent;
+      border-left: 3px solid transparent;
       padding: 10px 12px;
       text-align: left;
       cursor: pointer;
-      font-size: 0.82rem;
-      transition: border-color 0.18s ease, background 0.18s ease;
+      transition: all 0.2s ease;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 10px;
+      border-radius: 0 6px 6px 0;
     }
 
     .session-item:hover {
-      border-color: var(--accent-green);
-      background: rgba(63, 185, 80, 0.12);
+      background: rgba(255, 255, 255, 0.04);
     }
 
-    .session-item small {
-      display: block;
-      color: var(--text-dim);
-      margin-top: 4px;
+    .session-item.active {
+      border-left: 3px solid var(--accent-green);
+      background: rgba(63, 185, 80, 0.12);
     }
 
     .session-item-content {
       flex: 1;
+      min-width: 0;
+    }
+
+    .session-item-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.88rem;
+      font-weight: 400;
+      color: #e6edf3;
+      line-height: 1.35;
+      margin-bottom: 4px;
+      word-break: break-word;
+    }
+
+    .session-item.active .session-item-title {
+      color: #ffffff;
+    }
+
+    .session-item-time {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--text-dim, #8b949e);
     }
 
     .session-delete-btn {
+      opacity: 0;
       border: 1px solid var(--border-color);
-      background: transparent;
+      background: rgba(0, 0, 0, 0.3);
       color: var(--text-dim);
-      border-radius: 6px;
-      padding: 4px 8px;
+      border-radius: 4px;
+      padding: 3px 7px;
       font-size: 0.7rem;
       cursor: pointer;
+      transition: all 0.15s ease;
+      flex-shrink: 0;
+    }
+
+    .session-item:hover .session-delete-btn {
+      opacity: 1;
     }
 
     .session-delete-btn:hover {
       border-color: #f85149;
       color: #f85149;
+      background: rgba(248, 81, 73, 0.15);
     }
 
     .status-dot {
@@ -388,87 +447,103 @@
       font-weight: 600;
     }
 
-    /* Auto Allow Toggle Switch */
-    .auto-allow-control {
+    /* Split Allow Button & Dropdown Menu */
+    .split-btn-container {
+      position: relative;
+      display: inline-flex;
+      align-items: stretch;
+      align-self: flex-start;
+      margin-top: 10px;
+      border-radius: 6px;
+    }
+
+    .btn-allow-command.split-main {
+      border-top-right-radius: 0;
+      border-bottom-right-radius: 0;
+      border-right: none;
+      padding: 6px 12px;
+      margin-top: 0;
+      display: inline-flex;
+      align-items: center;
+      line-height: 1;
+    }
+
+    .btn-allow-command.split-toggle {
+      border-top-left-radius: 0;
+      border-bottom-left-radius: 0;
+      padding: 6px 8px;
+      min-width: unset;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-left: 1px solid rgba(63, 185, 80, 0.4);
+      margin-top: 0;
+      line-height: 1;
+      align-self: stretch;
+    }
+
+    .split-dropdown-menu {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      background: var(--bg-panel, #161b22);
+      border: 1px solid var(--border-color, #30363d);
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+      z-index: 100;
+      min-width: 220px;
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .split-dropdown-menu.hidden {
+      display: none;
+    }
+
+    .dropdown-item {
+      padding: 8px 12px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-main, #c9d1d9);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease;
       display: flex;
       align-items: center;
-      gap: 10px;
-      font-size: 0.8rem;
+      gap: 8px;
+      white-space: nowrap;
     }
 
-    .auto-allow-label-text {
-      color: var(--text-main);
-      font-weight: 500;
+    .dropdown-item:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
     }
 
-    .switch-toggle {
-      position: relative;
-      display: inline-block;
-      width: 36px;
-      height: 20px;
+    .dropdown-item.primary {
+      color: var(--accent-green, #3fb850);
     }
 
-    .switch-toggle input {
-      opacity: 0;
-      width: 0;
-      height: 0;
+    .dropdown-item.primary:hover {
+      background: rgba(63, 185, 80, 0.15);
+      color: var(--accent-green, #3fb850);
     }
 
-    .slider-round {
-      position: absolute;
-      cursor: pointer;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: var(--border-color);
-      transition: .25s;
-      border-radius: 20px;
-    }
-
-    .slider-round:before {
-      position: absolute;
-      content: "";
-      height: 14px;
-      width: 14px;
-      left: 3px;
-      bottom: 3px;
-      background-color: var(--text-dim);
-      transition: .25s;
-      border-radius: 50%;
-    }
-
-    .switch-toggle input:checked + .slider-round {
-      background-color: var(--accent-green);
-      box-shadow: 0 0 8px var(--accent-green-glow);
-    }
-
-    .switch-toggle input:checked + .slider-round:before {
-      transform: translateX(16px);
-      background-color: #fff;
-    }
-
-    .auto-allow-badge {
-      font-size: 0.68rem;
+    .auto-allowed-badge {
+      display: inline-flex;
+      align-items: center;
+      align-self: flex-start;
+      gap: 6px;
+      margin-top: 10px;
+      padding: 6px 12px;
+      font-size: 0.75rem;
       font-weight: 600;
-      padding: 2px 8px;
-      border-radius: 4px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      transition: all 0.2s ease;
-    }
-
-    .auto-allow-badge.manual {
-      background: rgba(139, 148, 158, 0.15);
-      color: var(--text-dim);
-      border: 1px solid var(--border-color);
-    }
-
-    .auto-allow-badge.active {
-      background: rgba(63, 185, 80, 0.2);
       color: var(--accent-green);
+      background: rgba(63, 185, 80, 0.12);
       border: 1px solid var(--accent-green);
-      box-shadow: 0 0 6px var(--accent-green-glow);
+      border-radius: 6px;
+      box-shadow: 0 0 8px var(--accent-green-glow);
     }
 
     .window-controls {
@@ -639,6 +714,7 @@
 
     .chat-actions {
       display: flex;
+      align-items: center;
       gap: 10px;
       margin-top: 12px;
       flex-wrap: wrap;
@@ -647,14 +723,16 @@
     .attachment-status {
       display: none;
       align-items: center;
-      gap: 8px;
-      margin-top: 10px;
-      padding: 8px 10px;
+      gap: 10px;
+      margin-top: 0;
+      padding: 0 0 0 12px;
       border: 1px solid var(--border-color);
-      border-radius: 8px;
+      border-radius: 6px;
       background: var(--bg-panel);
       color: var(--text-dim);
-      font-size: 0.78rem;
+      font-size: 0.8rem;
+      line-height: 1;
+      overflow: hidden;
     }
 
     .attachment-status.is-visible {
@@ -662,11 +740,27 @@
     }
 
     .attachment-clear {
-      background: transparent;
+      background: rgba(248, 81, 73, 0.12);
       border: none;
-      color: var(--text-dim);
+      border-left: 1px solid rgba(248, 81, 73, 0.35);
+      color: #f85149;
       cursor: pointer;
-      font-size: 0.8rem;
+      font-size: 0.78rem;
+      font-weight: 500;
+      padding: 8px 12px;
+      border-top-right-radius: 5px;
+      border-bottom-right-radius: 5px;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      align-self: stretch;
+      line-height: 1;
+      margin-left: auto;
+    }
+
+    .attachment-clear:hover {
+      background: rgba(248, 81, 73, 0.25);
+      color: #ff6b6b;
     }
 
     .action-btn {
@@ -687,6 +781,18 @@
       color: var(--text-main);
     }
 
+    .action-btn.btn-stop {
+      color: #f85149;
+      border-color: rgba(248, 81, 73, 0.35);
+      background: rgba(248, 81, 73, 0.1);
+    }
+
+    .action-btn.btn-stop:hover {
+      border-color: #f85149;
+      background: rgba(248, 81, 73, 0.22);
+      color: #ff6b6b;
+    }
+
     .btn-allow-command {
       background: rgba(63, 185, 80, 0.15);
       border: 1px solid var(--accent-green);
@@ -699,6 +805,9 @@
       align-items: center;
       gap: 6px;
       transition: all 0.2s;
+    }
+
+    .command-container > .btn-allow-command {
       margin-top: 10px;
     }
 
@@ -972,8 +1081,14 @@
         </a>
         <div class="sessions-panel" id="sessionsPanel">
           <div class="sessions-header">
-            <span>Saved Sessions</span>
-            <button class="action-btn" id="closeSessionsButton" type="button">Close</button>
+            <div class="sessions-header-title">
+              <svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+                stroke-width="2.2" viewBox="0 0 24 24" width="22" xmlns="http://www.w3.org/2000/svg">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+              </svg>
+              <span>Sessions</span>
+            </div>
+            <button class="action-btn" id="closeSessionsButton" type="button" style="padding: 4px 8px; font-size: 0.75rem;">Close</button>
           </div>
           <div class="session-list" id="sessionList"></div>
         </div>
@@ -1012,9 +1127,10 @@
             </svg>
             Models
           </li>
-          <div class="plan-steps">
+        </ul>
+        <div class="plan-steps">
           <span class="section-title">PLAN / STEPS</span>
-          <div class="plan-item done" data-step="0">
+          <div class="plan-item" data-step="0">
             <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
               <path
@@ -1022,12 +1138,12 @@
               </path>
             </svg>
             <span>1. Gather system information</span>
-            <svg fill="currentColor" style="margin-left: auto; color: var(--accent-green);" viewbox="0 0 24 24">
-              <circle cx="12" cy="12" opacity="0.2" r="10"></circle>
-              <path d="m9 12 2 2 4-4" fill="none" stroke="currentColor" stroke-width="2"></path>
+            <svg fill="none" stroke="currentColor" stroke-width="1" style="margin-left: auto; color: var(--text-dim);"
+              viewbox="0 0 24 24">
+              <circle cx="12" cy="12" r="10"></circle>
             </svg>
           </div>
-          <div class="plan-item done" data-step="1">
+          <div class="plan-item" data-step="1">
             <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
               <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a2 2 0 0 1-2.83-2.83l-3.94 3.6Z">
@@ -1036,12 +1152,12 @@
               <path d="m7 7-4 4a2 2 0 0 0 0 2.83l3.17 3.17a2 2 0 0 0 2.83 0l4-4"></path>
             </svg>
             <span>2. Diagnose the issue</span>
-            <svg fill="currentColor" style="margin-left: auto; color: var(--accent-green);" viewbox="0 0 24 24">
-              <circle cx="12" cy="12" opacity="0.2" r="10"></circle>
-              <path d="m9 12 2 2 4-4" fill="none" stroke="currentColor" stroke-width="2"></path>
+            <svg fill="none" stroke="currentColor" stroke-width="1" style="margin-left: auto; color: var(--text-dim);"
+              viewbox="0 0 24 24">
+              <circle cx="12" cy="12" r="10"></circle>
             </svg>
           </div>
-          <div class="plan-item done" data-step="2">
+          <div class="plan-item" data-step="2">
             <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
               <path d="M12 2v8"></path>
@@ -1053,9 +1169,9 @@
               <path d="m16 6-4 4-4-4"></path>
             </svg>
             <span>3. Propose a fix</span>
-            <svg fill="currentColor" style="margin-left: auto; color: var(--accent-green);" viewbox="0 0 24 24">
-              <circle cx="12" cy="12" opacity="0.2" r="10"></circle>
-              <path d="m9 12 2 2 4-4" fill="none" stroke="currentColor" stroke-width="2"></path>
+            <svg fill="none" stroke="currentColor" stroke-width="1" style="margin-left: auto; color: var(--text-dim);"
+              viewbox="0 0 24 24">
+              <circle cx="12" cy="12" r="10"></circle>
             </svg>
           </div>
           <div class="plan-item" data-step="3">
@@ -1101,7 +1217,6 @@
             </svg>
           </div>
         </div>
-        </ul>
         
 
       </aside>
@@ -1124,14 +1239,6 @@
             </svg>
             <span data-session-title>Live Session</span>
             <span class="tag-active">ACTIVE</span>
-          </div>
-          <div class="auto-allow-control">
-            <span class="auto-allow-label-text">Auto Allow</span>
-            <label class="switch-toggle" for="autoAllowToggle" title="Auto Allow execution mode for terminal commands">
-              <input type="checkbox" id="autoAllowToggle" />
-              <span class="slider-round"></span>
-            </label>
-            <span class="auto-allow-badge manual" id="autoAllowBadge">MANUAL</span>
           </div>
         </div>
         <div id="chatMessages" class="chat-scroll-area">
@@ -1258,17 +1365,37 @@
     const sessionList = document.getElementById('sessionList');
     const sessionTitle = document.querySelector('[data-session-title]');
     const planSteps = Array.from(document.querySelectorAll('.plan-item'));
-    const autoAllowToggle = document.getElementById('autoAllowToggle');
-    const autoAllowBadge = document.getElementById('autoAllowBadge');
 
     let currentCommand = null;
     let awaitingNextStep = false;
     let pendingContextPrompt = null;
     let sessionsOpen = false;
     let autoAllowEnabled = false;
+    let activeSessionId = null;
 
     function formatTime() {
       return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function formatRelativeTime(dateValue) {
+      if (!dateValue) return '';
+      const date = new Date(dateValue);
+      if (isNaN(date.getTime())) return String(dateValue);
+
+      const now = new Date();
+      const diffMs = now - date;
+      const diffSec = Math.floor(diffMs / 1000);
+      const diffMin = Math.floor(diffSec / 60);
+      const diffHours = Math.floor(diffMin / 60);
+      const diffDays = Math.floor(diffHours / 24);
+
+      if (diffSec < 60) return 'Just now';
+      if (diffMin < 60) return `${diffMin}m ago`;
+      if (diffHours < 24) return `${diffHours}h ago`;
+      if (diffDays === 1) return 'Yesterday';
+      if (diffDays < 7) return `${diffDays}d ago`;
+
+      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     }
 
     function setSessionTitle(title) {
@@ -1279,37 +1406,17 @@
 
     function updateAutoAllowUI(enabled) {
       autoAllowEnabled = Boolean(enabled);
-      if (autoAllowToggle) {
-        autoAllowToggle.checked = autoAllowEnabled;
-      }
-      if (autoAllowBadge) {
-        if (autoAllowEnabled) {
-          autoAllowBadge.textContent = 'AUTO ALLOW';
-          autoAllowBadge.className = 'auto-allow-badge active';
-        } else {
-          autoAllowBadge.textContent = 'MANUAL';
-          autoAllowBadge.className = 'auto-allow-badge manual';
-        }
-      }
     }
 
-    if (autoAllowToggle) {
-      autoAllowToggle.addEventListener('change', async () => {
-        const enabled = autoAllowToggle.checked;
-        updateAutoAllowUI(enabled);
-        if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.set_auto_allow === 'function') {
-          try {
-            await window.pywebview.api.set_auto_allow(enabled);
-            addLogOutput(`Auto Allow mode ${enabled ? 'enabled' : 'disabled'}.`);
-          } catch (error) {
-            addLogOutput(`Failed to set Auto Allow mode: ${error.message || error}`, true);
-          }
-        }
+    document.addEventListener('click', () => {
+      document.querySelectorAll('.split-dropdown-menu:not(.hidden)').forEach((menu) => {
+        menu.classList.add('hidden');
       });
-    }
+    });
 
     function clearChatView() {
       chatMessages.innerHTML = '';
+      renderPlanState(null);
     }
 
     function clearTerminalView() {
@@ -1351,28 +1458,42 @@
     }
 
     function renderPlanState(decision) {
-      const normalizedDecision = (decision || 'understand').toString().toLowerCase();
+      const checkSvg = `<svg fill="currentColor" style="margin-left: auto; color: var(--accent-green);" viewBox="0 0 24 24"><circle cx="12" cy="12" opacity="0.2" r="10"></circle><path d="m9 12 2 2 4-4" fill="none" stroke="currentColor" stroke-width="2"></path></svg>`;
+      const circleSvg = `<svg fill="none" stroke="currentColor" stroke-width="1" style="margin-left: auto; color: var(--text-dim);" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle></svg>`;
+
+      if (!decision) {
+        planSteps.forEach((step) => {
+          step.classList.remove('done', 'active');
+          const lastSvg = step.querySelector('svg:last-child');
+          if (lastSvg) lastSvg.outerHTML = circleSvg;
+        });
+        return;
+      }
+
+      const normalizedDecision = decision.toString().toLowerCase();
       const phaseIndex = {
         understand: 0,
         diagnose: 1,
         solve: 2,
         verify: 4,
         finished: 5,
-      }[normalizedDecision] ?? 0;
+      }[normalizedDecision] ?? -1;
 
       planSteps.forEach((step, index) => {
-        step.classList.remove('active');
-        if (index < phaseIndex) {
+        const lastSvg = step.querySelector('svg:last-child');
+        if (phaseIndex !== -1 && index < phaseIndex) {
           step.classList.add('done');
-        } else {
+          step.classList.remove('active');
+          if (lastSvg) lastSvg.outerHTML = checkSvg;
+        } else if (phaseIndex !== -1 && index === phaseIndex) {
           step.classList.remove('done');
+          step.classList.add('active');
+          if (lastSvg) lastSvg.outerHTML = circleSvg;
+        } else {
+          step.classList.remove('done', 'active');
+          if (lastSvg) lastSvg.outerHTML = circleSvg;
         }
       });
-
-      const currentStep = planSteps[phaseIndex];
-      if (currentStep) {
-        currentStep.classList.add('active');
-      }
     }
 
     function deriveDecisionFromHistory(history) {
@@ -1432,20 +1553,32 @@
         if (!Array.isArray(sessions) || !sessions.length) {
           const empty = document.createElement('div');
           empty.className = 'session-item';
+          empty.style.justifyContent = 'center';
+          empty.style.color = 'var(--text-dim)';
+          empty.style.fontSize = '0.8rem';
           empty.textContent = 'No saved sessions yet';
           sessionList.appendChild(empty);
           return;
         }
         sessions.forEach((session) => {
+          const sessionId = session.session_id ?? session.id;
+          const isActive = activeSessionId !== null && String(sessionId) === String(activeSessionId);
+
           const wrapper = document.createElement('div');
-          wrapper.className = 'session-item';
+          wrapper.className = `session-item${isActive ? ' active' : ''}`;
+
           const content = document.createElement('div');
           content.className = 'session-item-content';
-          const sessionId = session.session_id ?? session.id;
+
           const title = document.createElement('div');
+          title.className = 'session-item-title';
           title.textContent = session.title || `Session ${sessionId}`;
-          const meta = document.createElement('small');
-          meta.textContent = `Updated ${new Date(session.updated_at || session.modified || Date.now()).toLocaleString()}`;
+
+          const meta = document.createElement('div');
+          meta.className = 'session-item-time';
+          const rawTime = session.updated_at || session.modified || session.created_at || session.created;
+          meta.textContent = formatRelativeTime(rawTime);
+
           content.appendChild(title);
           content.appendChild(meta);
 
@@ -1458,6 +1591,9 @@
             try {
               const result = await window.pywebview.api.delete_session(sessionId);
               if (result && result.status === 'deleted') {
+                if (String(sessionId) === String(activeSessionId)) {
+                  activeSessionId = null;
+                }
                 renderSessionList();
                 addLogOutput(`Deleted session ${sessionId}.`);
               }
@@ -1470,6 +1606,7 @@
             try {
               const result = await window.pywebview.api.open_session(sessionId);
               if (result && result.status === 'opened') {
+                activeSessionId = sessionId;
                 window.investigating_obj = result.investigating_obj || result.investigation || {};
                 setSessionTitle(result.title || 'Loaded Session');
                 updateAutoAllowUI(result.auto_allow || false);
@@ -1477,6 +1614,7 @@
                 renderTerminalHistory();
                 sidebar.classList.remove('is-session-mode');
                 sessionsOpen = false;
+                renderSessionList();
               }
             } catch (error) {
               addLogOutput(`Unable to open session: ${error.message || error}`, true);
@@ -1645,26 +1783,99 @@
               commandDisplay.textContent = `$ ${step.command}`;
               commandWrapper.appendChild(commandDisplay);
 
-              const allowBtn = document.createElement('button');
-              allowBtn.className = 'btn-allow-command';
               const commandAlreadyExecuted = executedCommands.has(step.command.trim());
-              allowBtn.textContent = commandAlreadyExecuted ? '✓ Ran' : '▶ Allow';
+
               if (commandAlreadyExecuted) {
+                const allowBtn = document.createElement('button');
+                allowBtn.className = 'btn-allow-command';
+                allowBtn.textContent = '✓ Ran';
                 allowBtn.style.borderColor = 'var(--accent-green)';
+                allowBtn.addEventListener('click', () => {
+                  executeCommand(allowBtn, step.command, step.requires_sudo || false);
+                });
+                commandWrapper.appendChild(allowBtn);
+              } else if (autoAllowEnabled) {
+                const autoBadge = document.createElement('div');
+                autoBadge.className = 'auto-allowed-badge';
+                autoBadge.textContent = '⚡ Executed Automatically';
+                commandWrapper.appendChild(autoBadge);
+
+                if (!autoTriggered) {
+                  autoTriggered = true;
+                  const virtualBtn = document.createElement('button');
+                  virtualBtn.className = 'btn-allow-command';
+                  setTimeout(() => {
+                    executeCommand(virtualBtn, step.command, step.requires_sudo || false);
+                  }, 300);
+                }
+              } else {
+                const splitContainer = document.createElement('div');
+                splitContainer.className = 'split-btn-container';
+
+                const mainBtn = document.createElement('button');
+                mainBtn.className = 'btn-allow-command split-main';
+                mainBtn.textContent = '▶ Allow';
+                mainBtn.addEventListener('click', () => {
+                  executeCommand(mainBtn, step.command, step.requires_sudo || false);
+                });
+
+                const toggleBtn = document.createElement('button');
+                toggleBtn.className = 'btn-allow-command split-toggle';
+                toggleBtn.setAttribute('title', 'More options');
+                toggleBtn.innerHTML = `
+                  <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor">
+                    <path d="M0 0l5 6 5-6z"/>
+                  </svg>`;
+
+                const dropdown = document.createElement('div');
+                dropdown.className = 'split-dropdown-menu hidden';
+
+                const optOnce = document.createElement('div');
+                optOnce.className = 'dropdown-item';
+                optOnce.textContent = '▶ Allow Once';
+                optOnce.addEventListener('click', (e) => {
+                  e.stopPropagation();
+                  dropdown.classList.add('hidden');
+                  executeCommand(mainBtn, step.command, step.requires_sudo || false);
+                });
+
+                const optAlways = document.createElement('div');
+                optAlways.className = 'dropdown-item primary';
+                optAlways.textContent = '⚡ Always Allow in This Chat';
+                optAlways.addEventListener('click', async (e) => {
+                  e.stopPropagation();
+                  dropdown.classList.add('hidden');
+                  updateAutoAllowUI(true);
+                  if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.set_auto_allow === 'function') {
+                    try {
+                      await window.pywebview.api.set_auto_allow(true);
+                      addLogOutput('Auto Allow mode enabled for this chat.');
+                    } catch (error) {
+                      addLogOutput(`Failed to set Auto Allow mode: ${error.message || error}`, true);
+                    }
+                  }
+                  executeCommand(mainBtn, step.command, step.requires_sudo || false);
+                });
+
+                dropdown.appendChild(optOnce);
+                dropdown.appendChild(optAlways);
+
+                toggleBtn.addEventListener('click', (e) => {
+                  e.stopPropagation();
+                  document.querySelectorAll('.split-dropdown-menu').forEach((d) => {
+                    if (d !== dropdown) d.classList.add('hidden');
+                  });
+                  dropdown.classList.toggle('hidden');
+                });
+
+                splitContainer.appendChild(mainBtn);
+                splitContainer.appendChild(toggleBtn);
+                splitContainer.appendChild(dropdown);
+
+                commandWrapper.appendChild(splitContainer);
               }
-              allowBtn.addEventListener('click', () => {
-                executeCommand(allowBtn, step.command, step.requires_sudo || false);
-              });
-              commandWrapper.appendChild(allowBtn);
 
               card.appendChild(commandWrapper);
-
-              if (autoAllowEnabled && !commandAlreadyExecuted && !autoTriggered) {
-                autoTriggered = true;
-                setTimeout(() => {
-                  executeCommand(allowBtn, step.command, step.requires_sudo || false);
-                }, 300);
-              }
             }
             list.appendChild(card);
           });
@@ -2040,6 +2251,7 @@
       }
       try {
         const result = await window.pywebview.api.create_new_session();
+        activeSessionId = result && result.session_id ? result.session_id : null;
         sidebar.classList.remove('is-session-mode');
         sessionsOpen = false;
         clearChatView();
@@ -2047,6 +2259,7 @@
         appendMessage('agent', 'I’m ready to help with Linux troubleshooting. Ask me anything.');
         setSessionTitle('Live Session');
         addLogOutput(result && result.status ? `New ${result.status} created.` : 'New session created.');
+        renderSessionList();
       } catch (error) {
         addLogOutput(`Unable to create a new session: ${error.message || error}`, true);
       }
