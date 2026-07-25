@@ -95,7 +95,26 @@ class Api:
         for entry in self.chat_history:
             if entry.get("role") == "user" and entry.get("content"):
                 content = str(entry["content"]).strip()
-                return content[:30] + ("..." if len(content) > 30 else "")
+                if not content:
+                    continue
+                try:
+                    response = chat(
+                        model="smollm2:135m",
+                        messages=[
+                            {"role": "system", "content": "Generate a concise 3-word title for this chat. Reply with ONLY the title, nothing else."},
+                            {"role": "user", "content": content},
+                        ],
+                        stream=False,
+                        think=False,
+                        options={"num_thread": 2},
+                    )
+                    title = response.get("message", {}).get("content", "").strip().strip('"').strip("'")
+                    words = title.split()
+                    if len(words) > 3:
+                        title = " ".join(words[:3])
+                    return title if title else content[:30]
+                except Exception:
+                    return content[:30] + ("..." if len(content) > 30 else "")
         return "New Chat"
 
     def _session_snapshot(self):
@@ -158,7 +177,8 @@ class Api:
             return {"status": "not_found", "session_id": session_id}
 
         self.active_session_id = session["id"]
-        self.chat_history = self._sanitize_chat_history(session.get("chatHistory", []))
+        raw_history = session.get("chatHistory", session.get("chat_history", []))
+        self.chat_history = self._sanitize_chat_history(raw_history)
         self.investigation = InvestigationState()
         self.investigating_obj = copy.deepcopy(session.get("investigation", {}))
         self.continue_event = bool(session.get("isContinue", False))
@@ -170,6 +190,7 @@ class Api:
             "session_id": self.active_session_id,
             "title": session.get("title") or "New Chat",
             "chat_history": copy.deepcopy(self.chat_history),
+            "chatHistory": copy.deepcopy(self.chat_history),
             "investigating_obj": copy.deepcopy(self.investigating_obj),
             "continue_event": self.continue_event,
             "auto_allow": self.auto_allow,
@@ -413,7 +434,7 @@ class Api:
         for fallback in ["qwen2.5-coder:3b"]:
             if fallback not in candidate_models:
                 candidate_models.append(fallback)
-        # print(self.chat_history)
+        print(self.build_messages(normalized_message))
         last_error = None
         for model_name in candidate_models:
             try:
@@ -460,7 +481,7 @@ class Api:
                     if response_data["steps"]:
                         response_data["has_more_steps"] = len(response_data["steps"]) > 1
                         response_data["next_step"] = response_data["steps"][0]
-                    print(response_data)
+                    # print(response_data)
                     return response_data
             except Exception as exc:
                 last_error = exc
