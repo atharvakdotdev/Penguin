@@ -5,6 +5,7 @@ import json
 import os
 import queue
 import subprocess
+import webview
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -19,7 +20,6 @@ DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b").strip()
 
 class Api:
     def __init__(self):
-        self.model = DEFAULT_MODEL
         self.state = DEFAULT_STATE
         self.chat_history = []
         self.active_session_id = None
@@ -27,8 +27,20 @@ class Api:
         self.investigation = InvestigationState()
         self.input_queue = queue.Queue()
         self.continue_event = False
-        self.auto_allow = False
         self.session_manager = SessionManager(Path(__file__).resolve().parent / "sessions.db")
+        self.default_model = self.session_manager.load_setting("default_model", DEFAULT_MODEL)
+        self.permission_mode = self.session_manager.load_setting("permission_mode", "ask_before_running")
+        self.auto_allow = self.permission_mode == "auto_confirm"
+        self.current_chat_model = self.default_model
+        self.chat_started = False
+
+    @property
+    def model(self):
+        return self.current_chat_model
+
+    @model.setter
+    def model(self, value):
+        self.current_chat_model = str(value or "").strip()
 
     @property
     def investigating_obj(self):
@@ -128,6 +140,7 @@ class Api:
             "investigation": copy.deepcopy(self.investigating_obj),
             "isContinue": bool(self.continue_event),
             "auto_allow": bool(self.auto_allow),
+            "model": self.current_chat_model,
         }
 
     def save_current_session(self, title=None):
@@ -148,6 +161,9 @@ class Api:
             "title": saved["title"],
             "updated_at": saved["modified"],
             "auto_allow": self.auto_allow,
+            "current_chat_model": self.current_chat_model,
+            "default_model": self.default_model,
+            "chat_started": self.chat_started,
         }
 
     def list_sessions(self):
@@ -179,11 +195,13 @@ class Api:
         self.active_session_id = session["id"]
         raw_history = session.get("chatHistory", session.get("chat_history", []))
         self.chat_history = self._sanitize_chat_history(raw_history)
+        self.current_chat_model = str(session.get("model") or self.default_model).strip()
         self.investigation = InvestigationState()
         self.investigating_obj = copy.deepcopy(session.get("investigation", {}))
         self.continue_event = bool(session.get("isContinue", False))
         self.auto_allow = bool(session.get("auto_allow", False))
         self.state = DEFAULT_STATE
+        self.chat_started = len(self.chat_history) > 0
 
         return {
             "status": "opened",
@@ -194,6 +212,9 @@ class Api:
             "investigating_obj": copy.deepcopy(self.investigating_obj),
             "continue_event": self.continue_event,
             "auto_allow": self.auto_allow,
+            "current_chat_model": self.current_chat_model,
+            "default_model": self.default_model,
+            "chat_started": self.chat_started,
         }
 
     def set_auto_allow(self, enabled):
@@ -222,9 +243,12 @@ class Api:
                 "investigation": {},
                 "isContinue": False,
                 "auto_allow": False,
+                "model": self.default_model,
             }
         )
         self._reset_runtime_state()
+        self.current_chat_model = self.default_model
+        self.chat_started = False
         self.active_session_id = created["id"]
         return {
             "status": "created",
@@ -232,6 +256,9 @@ class Api:
             "id": self.active_session_id,
             "title": created["title"],
             "auto_allow": False,
+            "current_chat_model": self.current_chat_model,
+            "default_model": self.default_model,
+            "chat_started": self.chat_started,
         }
 
     def list_models(self):
@@ -254,11 +281,11 @@ class Api:
         except FileNotFoundError:
             installed_models = []
 
-        if self.model and self.model not in installed_models:
-            installed_models.insert(0, self.model)
+        if self.current_chat_model and self.current_chat_model not in installed_models:
+            installed_models.insert(0, self.current_chat_model)
 
         if not installed_models:
-            installed_models = [self.model or DEFAULT_MODEL]
+            installed_models = [self.current_chat_model or self.default_model or DEFAULT_MODEL]
 
         unique_models = []
         for model_name in installed_models:
@@ -270,10 +297,72 @@ class Api:
     def set_model(self, model_name):
         cleaned = str(model_name or "").strip()
         if not cleaned:
-            return {"status": "error", "message": "No model selected.", "model": self.model}
+            return {"status": "error", "message": "No model selected.", "model": self.current_chat_model}
 
-        self.model = cleaned
-        return {"status": "ok", "model": self.model}
+        if self.chat_started:
+            return {"status": "error", "message": "The current chat model is locked.", "model": self.current_chat_model}
+
+        self.current_chat_model = cleaned
+        if self.active_session_id is not None:
+            self.save_current_session()
+        return {"status": "ok", "model": self.current_chat_model}
+
+    def get_settings(self):
+        return {
+            "default_model": self.default_model,
+            "current_chat_model": self.current_chat_model,
+            "chat_started": self.chat_started,
+            "permission_mode": "auto_confirm" if self.auto_allow else "ask_before_running",
+        }
+
+    def save_settings(self, payload=None):
+        settings = payload or {}
+        default_model = str(settings.get("default_model") or "").strip()
+        permission_mode = str(settings.get("permission_mode") or "").strip()
+
+        if default_model:
+            self.default_model = default_model
+            self.session_manager.save_setting("default_model", self.default_model)
+            if not self.chat_started:
+                self.current_chat_model = self.default_model
+                if self.active_session_id is not None:
+                    self.save_current_session()
+
+        permission_mode = permission_mode if permission_mode == "auto_confirm" else "ask_before_running"
+        self.session_manager.save_setting("permission_mode", permission_mode)
+        self.auto_allow = permission_mode == "auto_confirm"
+        if self.active_session_id is not None:
+            self.save_current_session()
+
+        return {
+            "status": "ok",
+            "default_model": self.default_model,
+            "current_chat_model": self.current_chat_model,
+            "chat_started": self.chat_started,
+            "permission_mode": "auto_confirm" if self.auto_allow else "ask_before_running",
+        }
+
+    def open_settings(self):
+        """Navigate the webview to the settings page."""
+        try:
+            windows = webview.windows
+            if windows:
+                settings_path = Path(__file__).resolve().parent / "templates" / "settings.html"
+                windows[0].load_url(str(settings_path))
+            return {"status": "ok"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def open_main(self):
+        """Navigate the webview back to the main chat page."""
+        try:
+            windows = webview.windows
+            if windows:
+                main_path = Path(__file__).resolve().parent / "templates" / "index.html"
+                windows[0].load_url(str(main_path))
+            return {"status": "ok"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
 
     def _new_investigation(self):
         return self.investigation.new_investigation()
@@ -305,11 +394,10 @@ class Api:
         current_state_prompt = STATE_PROMPTS.get(self.state, STATE_PROMPTS[DEFAULT_STATE])
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "system", "content": "Chat History" + str(self.chat_history)},
             {"role": "system", "content": current_state_prompt},
             {"role": "system", "content": investigation_summary},
+            {"role": "system", "content": "Chat History" + str(self.chat_history)},
             {"role": "user", "content": str(message).strip()},
-            
         ]
         return messages
 
@@ -416,6 +504,8 @@ class Api:
             return {"reply": "Please enter a message.", "steps": []}
 
         if not self._is_controller_prompt(normalized_message) and not self._is_internal_investigation_payload(normalized_message):
+            if not self.chat_started:
+                self.chat_started = True
             self.chat_history.append({"role": "user", "content": normalized_message})
             self.save_current_session()
         # if not self.investigating_obj['root_cause']:
@@ -429,13 +519,14 @@ class Api:
         #         ).get("message", {}).get("content", "")
             
         candidate_models = []
-        if self.model:
-            candidate_models.append(self.model)
+        if self.current_chat_model:
+            candidate_models.append(self.current_chat_model)
         for fallback in ["qwen2.5-coder:3b"]:
             if fallback not in candidate_models:
                 candidate_models.append(fallback)
-        print(self.build_messages(normalized_message))
+        # print(self.build_messages(normalized_message))
         last_error = None
+        # print(model_name)
         for model_name in candidate_models:
             try:
                 response = chat(
@@ -449,6 +540,7 @@ class Api:
                         "num_thread": 4
                     }
                 )
+                print(model_name)
 
                 content = (
                     response.get("message", {}).get("content", "")
