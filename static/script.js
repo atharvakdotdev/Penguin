@@ -1,0 +1,1248 @@
+// Shared Penguin frontend script
+const pageType = document.body?.dataset?.page || "";
+const isChatPage = pageType === "chat";
+const isSettingsPage = pageType === "settings";
+const sidebar = document.querySelector(".sidebar");
+const sidebarToggle = document.getElementById("sidebarToggle");
+function toggleSidebar() {
+  if (!sidebar) return;
+  const isCollapsed = sidebar.classList.toggle("is-collapsed");
+  if (sidebarToggle) {
+    sidebarToggle.classList.toggle("is-closed", isCollapsed);
+    sidebarToggle.setAttribute("aria-label", isCollapsed ? "Open sidebar" : "Collapse sidebar");
+  }
+}
+if (isChatPage) {
+(function() {
+const chatInput = document.getElementById('chatInput');
+    const chatMessages = document.getElementById('chatMessages');
+    const sendButton = document.getElementById('sendButton');
+    const attachLogButton = document.getElementById('attachLogButton');
+    const logFileInput = document.getElementById('logFileInput');
+    const attachmentStatus = document.getElementById('attachmentStatus');
+    const attachmentLabel = document.getElementById('attachmentLabel');
+    const attachmentClear = document.getElementById('attachmentClear');
+    const terminalWindow = document.querySelector('.terminal-window');
+    const sidebar = document.querySelector('.sidebar');
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    const rightPanel = document.querySelector('.right-panel');
+    const rightPanelResizer = document.getElementById('rightPanelResizer');
+    const modelSelect = document.getElementById('modelSelect');
+    const newSessionButton = document.getElementById('newSessionButton');
+    const sessionsButton = document.querySelector('[data-role="sessions-toggle"]');
+    const closeSessionsButton = document.getElementById('closeSessionsButton');
+    const sessionList = document.getElementById('sessionList');
+    const sessionTitle = document.querySelector('[data-session-title]');
+    const planSteps = Array.from(document.querySelectorAll('.plan-item'));
+    const settingsNav = document.querySelector('[data-role="settings-nav"]');
+
+    let currentCommand = null;
+    let awaitingNextStep = false;
+    let pendingContextPrompt = null;
+    let sessionsOpen = false;
+    let autoAllowEnabled = false;
+    let activeSessionId = null;
+    let chat_history = [];
+    window.chat_history = chat_history;
+
+    function formatTime() {
+      return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function formatRelativeTime(dateValue) {
+      if (!dateValue) return '';
+      const date = new Date(dateValue);
+      if (isNaN(date.getTime())) return String(dateValue);
+
+      const now = new Date();
+      const diffMs = now - date;
+      const diffSec = Math.floor(diffMs / 1000);
+      const diffMin = Math.floor(diffSec / 60);
+      const diffHours = Math.floor(diffMin / 60);
+      const diffDays = Math.floor(diffHours / 24);
+
+      if (diffSec < 60) return 'Just now';
+      if (diffMin < 60) return `${diffMin}m ago`;
+      if (diffHours < 24) return `${diffHours}h ago`;
+      if (diffDays === 1) return 'Yesterday';
+      if (diffDays < 7) return `${diffDays}d ago`;
+
+      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+
+    function setSessionTitle(title) {
+      if (sessionTitle) {
+        sessionTitle.textContent = title || 'Live Session';
+      }
+    }
+
+    function updateAutoAllowUI(enabled) {
+      autoAllowEnabled = Boolean(enabled);
+    }
+
+    document.addEventListener('click', () => {
+      document.querySelectorAll('.split-dropdown-menu:not(.hidden)').forEach((menu) => {
+        menu.classList.add('hidden');
+      });
+    });
+
+    function clearChatView() {
+      chatMessages.innerHTML = '';
+      chat_history = [];
+      window.chat_history = chat_history;
+      renderPlanState(null);
+    }
+
+    function clearTerminalView() {
+      terminalWindow.innerHTML = '';
+    }
+
+    function isControllerPrompt(text) {
+      if (typeof text !== 'string') {
+        return false;
+      }
+      const cleaned = text.trim();
+      return cleaned.startsWith('The requested command has finished.') && cleaned.includes('Choose the next diagnostic step based on the above output.');
+    }
+
+    function getExecutedCommandSet() {
+      const appliedState = window.investigating_obj || {};
+      const executions = Array.isArray(appliedState.executed_commands) ? appliedState.executed_commands : [];
+      const commands = new Set();
+      executions.forEach((entry) => {
+        if (entry && typeof entry.command === 'string' && entry.command.trim()) {
+          commands.add(entry.command.trim());
+        }
+      });
+      return commands;
+    }
+
+    function renderTerminalHistory() {
+      clearTerminalView();
+      const executedCommands = Array.isArray(window.investigating_obj?.executed_commands)
+        ? window.investigating_obj.executed_commands
+        : [];
+
+      executedCommands.forEach((entry) => {
+        if (!entry || typeof entry.command !== 'string') {
+          return;
+        }
+        addTerminalOutput(entry.command, entry.output || '', entry.success === false);
+      });
+    }
+
+    function renderPlanState(decision) {
+      const checkSvg = `<svg fill="currentColor" style="margin-left: auto; color: var(--accent-green);" viewBox="0 0 24 24"><circle cx="12" cy="12" opacity="0.2" r="10"></circle><path d="m9 12 2 2 4-4" fill="none" stroke="currentColor" stroke-width="2"></path></svg>`;
+      const circleSvg = `<svg fill="none" stroke="currentColor" stroke-width="1" style="margin-left: auto; color: var(--text-dim);" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle></svg>`;
+
+      if (!decision) {
+        planSteps.forEach((step) => {
+          step.classList.remove('done', 'active');
+          const lastSvg = step.querySelector('svg:last-child');
+          if (lastSvg) lastSvg.outerHTML = circleSvg;
+        });
+        return;
+      }
+
+      const normalizedDecision = decision.toString().toLowerCase();
+      const phaseIndex = {
+        understand: 0,
+        diagnose: 1,
+        solve: 2,
+        verify: 4,
+        finished: 5,
+      }[normalizedDecision] ?? -1;
+
+      planSteps.forEach((step, index) => {
+        const lastSvg = step.querySelector('svg:last-child');
+        if (phaseIndex !== -1 && index < phaseIndex) {
+          step.classList.add('done');
+          step.classList.remove('active');
+          if (lastSvg) lastSvg.outerHTML = checkSvg;
+        } else if (phaseIndex !== -1 && index === phaseIndex) {
+          step.classList.remove('done');
+          step.classList.add('active');
+          if (lastSvg) lastSvg.outerHTML = circleSvg;
+        } else {
+          step.classList.remove('done', 'active');
+          if (lastSvg) lastSvg.outerHTML = circleSvg;
+        }
+      });
+    }
+
+    function deriveDecisionFromHistory(history) {
+      if (!Array.isArray(history)) {
+        return 'understand';
+      }
+      for (let index = history.length - 1; index >= 0; index -= 1) {
+        const entry = history[index];
+        if (!entry || entry.role !== 'assistant') {
+          continue;
+        }
+
+        const payload = (entry && typeof entry.content === 'object' && entry.content !== null)
+          ? entry.content
+          : (typeof entry.content === 'string' ? (() => {
+            try {
+              return JSON.parse(entry.content);
+            } catch (error) {
+              return null;
+            }
+          })() : null);
+
+        if (payload && typeof payload.decision === 'string') {
+          return payload.decision;
+        }
+      }
+      return 'understand';
+    }
+
+    function renderSessionHistory(history) {
+      clearChatView();
+      chat_history = Array.isArray(history) ? history : [];
+      window.chat_history = chat_history;
+      if (!Array.isArray(history)) {
+        return;
+      }
+      history.forEach((entry) => {
+        if (!entry || !entry.role || entry.role === 'system') {
+          return;
+        }
+        if (entry.role === 'user' && isControllerPrompt(entry.content)) {
+          return;
+        }
+        if (entry.role === 'assistant' || entry.role === 'user') {
+          appendMessage(entry.role === 'assistant' ? 'agent' : 'user', entry);
+        }
+      });
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      renderPlanState(deriveDecisionFromHistory(history));
+      renderTerminalHistory();
+    }
+
+    function renderSessionList() {
+      if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.list_sessions !== 'function') {
+        return;
+      }
+      window.pywebview.api.list_sessions().then((sessions) => {
+        sessionList.innerHTML = '';
+        if (!Array.isArray(sessions) || !sessions.length) {
+          const empty = document.createElement('div');
+          empty.className = 'session-item';
+          empty.style.justifyContent = 'center';
+          empty.style.color = 'var(--text-dim)';
+          empty.style.fontSize = '0.8rem';
+          empty.textContent = 'No saved sessions yet';
+          sessionList.appendChild(empty);
+          return;
+        }
+        sessions.forEach((session) => {
+          const sessionId = session.session_id ?? session.id;
+          const isActive = activeSessionId !== null && String(sessionId) === String(activeSessionId);
+
+          const wrapper = document.createElement('div');
+          wrapper.className = `session-item${isActive ? ' active' : ''}`;
+
+          const content = document.createElement('div');
+          content.className = 'session-item-content';
+
+          const title = document.createElement('div');
+          title.className = 'session-item-title';
+          title.textContent = session.title || `Session ${sessionId}`;
+
+          const meta = document.createElement('div');
+          meta.className = 'session-item-time';
+          const rawTime = session.updated_at || session.modified || session.created_at || session.created;
+          meta.textContent = formatRelativeTime(rawTime);
+
+          content.appendChild(title);
+          content.appendChild(meta);
+
+          const deleteBtn = document.createElement('button');
+          deleteBtn.type = 'button';
+          deleteBtn.className = 'session-delete-btn';
+          deleteBtn.textContent = 'Delete';
+          deleteBtn.addEventListener('click', async (event) => {
+            event.stopPropagation();
+            try {
+              const result = await window.pywebview.api.delete_session(sessionId);
+              if (result && result.status === 'deleted') {
+                if (String(sessionId) === String(activeSessionId)) {
+                  activeSessionId = null;
+                }
+                renderSessionList();
+                addLogOutput(`Deleted session ${sessionId}.`);
+              }
+            } catch (error) {
+              addLogOutput(`Unable to delete session: ${error.message || error}`, true);
+            }
+          });
+
+          wrapper.addEventListener('click', async () => {
+            try {
+              const result = await window.pywebview.api.open_session(sessionId);
+              if (result && result.status === 'opened') {
+                activeSessionId = sessionId;
+                window.investigating_obj = result.investigating_obj || result.investigation || {};
+                setSessionTitle(result.title || 'Loaded Session');
+                updateAutoAllowUI(result.auto_allow || false);
+                renderSessionHistory(result.chat_history || []);
+                renderTerminalHistory();
+                sidebar.classList.remove('is-session-mode');
+                sessionsOpen = false;
+                renderSessionList();
+              }
+            } catch (error) {
+              addLogOutput(`Unable to open session: ${error.message || error}`, true);
+            }
+          });
+
+          wrapper.appendChild(content);
+          wrapper.appendChild(deleteBtn);
+          sessionList.appendChild(wrapper);
+        });
+      }).catch((error) => {
+        addLogOutput(`Unable to load sessions: ${error.message || error}`, true);
+      });
+    }
+
+    async function loadAvailableModels(retries = 12) {
+      if (!modelSelect) {
+        return;
+      }
+
+      if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.list_models !== 'function') {
+        if (retries > 0) {
+          setTimeout(() => loadAvailableModels(retries - 1), 250);
+        }
+        return;
+      }
+
+      modelSelect.innerHTML = '<option>Loading models...</option>';
+
+      try {
+        const models = await window.pywebview.api.list_models();
+        const normalizedModels = Array.isArray(models)
+          ? models
+          : (models && Array.isArray(models.models) ? models.models : []);
+
+        modelSelect.innerHTML = '';
+        if (!normalizedModels.length) {
+          const option = document.createElement('option');
+          option.value = '';
+          option.textContent = 'No models found';
+          modelSelect.appendChild(option);
+          return;
+        }
+
+        normalizedModels.forEach((modelName) => {
+          const option = document.createElement('option');
+          option.value = modelName;
+          option.textContent = modelName;
+          modelSelect.appendChild(option);
+        });
+
+        if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.get_settings === 'function') {
+          const settings = await window.pywebview.api.get_settings();
+          if (settings && typeof settings.current_chat_model === 'string' && settings.current_chat_model) {
+            modelSelect.value = settings.current_chat_model;
+          } else if (settings && typeof settings.default_model === 'string' && settings.default_model) {
+            modelSelect.value = settings.default_model;
+          }
+          if (settings && settings.chat_started) {
+            modelSelect.disabled = true;
+            modelSelect.classList.add('locked');
+          } else {
+            modelSelect.disabled = false;
+            modelSelect.classList.remove('locked');
+          }
+        }
+      } catch (error) {
+        modelSelect.innerHTML = '<option>No models found</option>';
+        addLogOutput(`Unable to load Ollama models: ${error.message || error}`, true);
+      }
+    }
+
+    function toggleSidebar() {
+      const isCollapsed = sidebar.classList.toggle('is-collapsed');
+      if (sidebarToggle) {
+        sidebarToggle.classList.toggle('is-closed', isCollapsed);
+        sidebarToggle.setAttribute('aria-label', isCollapsed ? 'Open sidebar' : 'Collapse sidebar');
+      }
+    }
+
+    function startRightPanelResize(event) {
+      if (!rightPanel) return;
+      event.preventDefault();
+
+      const onMove = (moveEvent) => {
+        const width = Math.max(260, Math.min(700, window.innerWidth - moveEvent.clientX));
+        rightPanel.style.width = `${width}px`;
+        document.documentElement.style.setProperty('--right-panel-width', `${width}px`);
+      };
+
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    }
+
+    function toggleSessionsPanel() {
+      sessionsOpen = !sessionsOpen;
+      sidebar.classList.toggle('is-session-mode', sessionsOpen);
+      if (sessionsOpen) {
+        renderSessionList();
+      }
+    }
+
+    function addTerminalOutput(command, output, isError = false) {
+      const cmdDiv = document.createElement('div');
+      cmdDiv.className = 'terminal-cmd';
+      cmdDiv.textContent = `$ ${command}`;
+      terminalWindow.appendChild(cmdDiv);
+
+      if (output) {
+        const resDiv = document.createElement('div');
+        resDiv.className = 'terminal-res';
+        if (isError) {
+          resDiv.style.color = '#f85149';
+        }
+        resDiv.textContent = output;
+        terminalWindow.appendChild(resDiv);
+      }
+
+      const timeDiv = document.createElement('span');
+      timeDiv.className = 'terminal-time';
+      timeDiv.textContent = formatTime();
+      terminalWindow.appendChild(timeDiv);
+
+      terminalWindow.scrollTop = terminalWindow.scrollHeight;
+    }
+
+    function addLogOutput(message, isError = false) {
+      if (isError) {
+        console.error(message);
+      } else {
+        console.log(message);
+      }
+    }
+
+    function populateAgentContent(container, response) {
+      container.innerHTML = '';
+      if (response && typeof response === 'object') {
+        if (response.auto_allow !== undefined) {
+          updateAutoAllowUI(response.auto_allow);
+        }
+        if (response.reply) {
+          const reply = document.createElement('div');
+          reply.className = 'card-body';
+          reply.style.whiteSpace = 'pre-wrap';
+          reply.textContent = response.reply;
+          container.appendChild(reply);
+        }
+
+
+        if (Array.isArray(response.steps) && response.steps.length) {
+          const executedCommands = getExecutedCommandSet();
+          const list = document.createElement('div');
+          list.className = 'card-list';
+          let autoTriggered = false;
+          response.steps.forEach((step) => {
+            const card = document.createElement('div');
+            card.className = 'card';
+            const title = document.createElement('div');
+            title.className = 'card-header gathering';
+            title.textContent = step.title || 'Step';
+            const description = document.createElement('div');
+            description.className = 'card-body';
+            description.textContent = step.description || '';
+            card.appendChild(title);
+            card.appendChild(description);
+
+            if (step.command) {
+              const commandWrapper = document.createElement('div');
+              commandWrapper.className = 'command-container';
+
+              const commandDisplay = document.createElement('div');
+              commandDisplay.className = 'command-display';
+              commandDisplay.textContent = `$ ${step.command}`;
+              commandWrapper.appendChild(commandDisplay);
+
+              const commandAlreadyExecuted = executedCommands.has(step.command.trim());
+
+              if (commandAlreadyExecuted) {
+                const splitContainer = document.createElement('div');
+                splitContainer.className = 'split-btn-container';
+
+                const mainBtn = document.createElement('button');
+                mainBtn.className = 'btn-allow-command split-main';
+                mainBtn.textContent = '✓ Ran';
+                mainBtn.disabled = true;
+
+                const toggleBtn = document.createElement('button');
+                toggleBtn.className = 'btn-allow-command split-toggle';
+                toggleBtn.setAttribute('title', 'More options');
+                toggleBtn.innerHTML = `
+                  <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor">
+                    <path d="M0 0l5 6 5-6z"/>
+                  </svg>`;
+
+                const dropdown = document.createElement('div');
+                dropdown.className = 'split-dropdown-menu hidden';
+
+                const optOnce = document.createElement('div');
+                optOnce.className = 'dropdown-item';
+                optOnce.textContent = 'Allow Once';
+                optOnce.addEventListener('click', (e) => {
+                  e.stopPropagation();
+                  dropdown.classList.add('hidden');
+                });
+
+                const optAlways = document.createElement('div');
+                optAlways.className = 'dropdown-item primary';
+                optAlways.textContent = 'Always Allow in This Chat';
+                optAlways.addEventListener('click', async (e) => {
+                  e.stopPropagation();
+                  dropdown.classList.add('hidden');
+                });
+
+                dropdown.appendChild(optOnce);
+                dropdown.appendChild(optAlways);
+
+                toggleBtn.addEventListener('click', (e) => {
+                  e.stopPropagation();
+                  document.querySelectorAll('.split-dropdown-menu').forEach((d) => {
+                    if (d !== dropdown) d.classList.add('hidden');
+                  });
+                  dropdown.classList.toggle('hidden');
+                });
+
+                splitContainer.appendChild(mainBtn);
+                splitContainer.appendChild(toggleBtn);
+                splitContainer.appendChild(dropdown);
+
+                const actionsRow1 = document.createElement('div');
+                actionsRow1.className = 'command-actions-row';
+                actionsRow1.appendChild(splitContainer);
+
+                const copyBtn1 = document.createElement('button');
+                copyBtn1.className = 'copy-command-btn';
+                copyBtn1.setAttribute('title', 'Copy command');
+                copyBtn1.innerHTML = `<svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
+                copyBtn1.addEventListener('click', () => {
+                  navigator.clipboard.writeText(step.command).then(() => {
+                    copyBtn1.innerHTML = `<svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>`;
+                    setTimeout(() => {
+                      copyBtn1.innerHTML = `<svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
+                    }, 1500);
+                  });
+                });
+                actionsRow1.appendChild(copyBtn1);
+                commandWrapper.appendChild(actionsRow1);
+              } else if (autoAllowEnabled) {
+                const actionsRow2 = document.createElement('div');
+                actionsRow2.className = 'command-actions-row';
+
+                const autoBadge = document.createElement('div');
+                autoBadge.className = 'auto-allowed-badge';
+                autoBadge.textContent = 'Executed Automatically';
+                actionsRow2.appendChild(autoBadge);
+
+                const copyBtn2 = document.createElement('button');
+                copyBtn2.className = 'copy-command-btn';
+                copyBtn2.setAttribute('title', 'Copy command');
+                copyBtn2.innerHTML = `<svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
+                copyBtn2.addEventListener('click', () => {
+                  navigator.clipboard.writeText(step.command).then(() => {
+                    copyBtn2.innerHTML = `<svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>`;
+                    setTimeout(() => {
+                      copyBtn2.innerHTML = `<svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
+                    }, 1500);
+                  });
+                });
+                actionsRow2.appendChild(copyBtn2);
+                commandWrapper.appendChild(actionsRow2);
+
+                if (!autoTriggered) {
+                  autoTriggered = true;
+                  const virtualBtn = document.createElement('button');
+                  virtualBtn.className = 'btn-allow-command';
+                  setTimeout(() => {
+                    executeCommand(virtualBtn, step.command, step.requires_sudo || false);
+                  }, 300);
+                }
+              } else {
+                const splitContainer = document.createElement('div');
+                splitContainer.className = 'split-btn-container';
+
+                const mainBtn = document.createElement('button');
+                mainBtn.className = 'btn-allow-command split-main';
+                mainBtn.textContent = '▶ Allow';
+                mainBtn.addEventListener('click', () => {
+                  executeCommand(mainBtn, step.command, step.requires_sudo || false);
+                });
+
+                const toggleBtn = document.createElement('button');
+                toggleBtn.className = 'btn-allow-command split-toggle';
+                toggleBtn.setAttribute('title', 'More options');
+                toggleBtn.innerHTML = `
+                  <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor">
+                    <path d="M0 0l5 6 5-6z"/>
+                  </svg>`;
+
+                const dropdown = document.createElement('div');
+                dropdown.className = 'split-dropdown-menu hidden';
+
+                const optOnce = document.createElement('div');
+                optOnce.className = 'dropdown-item';
+                optOnce.textContent = 'Allow Once';
+                optOnce.addEventListener('click', (e) => {
+                  e.stopPropagation();
+                  dropdown.classList.add('hidden');
+                  executeCommand(mainBtn, step.command, step.requires_sudo || false);
+                });
+
+                const optAlways = document.createElement('div');
+                optAlways.className = 'dropdown-item primary';
+                optAlways.textContent = 'Always Allow in This Chat';
+                optAlways.addEventListener('click', async (e) => {
+                  e.stopPropagation();
+                  dropdown.classList.add('hidden');
+                  updateAutoAllowUI(true);
+                  if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.set_auto_allow === 'function') {
+                    try {
+                      await window.pywebview.api.set_auto_allow(true);
+                      addLogOutput('Auto Allow mode enabled for this chat.');
+                    } catch (error) {
+                      addLogOutput(`Failed to set Auto Allow mode: ${error.message || error}`, true);
+                    }
+                  }
+                  executeCommand(mainBtn, step.command, step.requires_sudo || false);
+                });
+
+                dropdown.appendChild(optOnce);
+                dropdown.appendChild(optAlways);
+
+                toggleBtn.addEventListener('click', (e) => {
+                  e.stopPropagation();
+                  document.querySelectorAll('.split-dropdown-menu').forEach((d) => {
+                    if (d !== dropdown) d.classList.add('hidden');
+                  });
+                  dropdown.classList.toggle('hidden');
+                });
+
+                splitContainer.appendChild(mainBtn);
+                splitContainer.appendChild(toggleBtn);
+                splitContainer.appendChild(dropdown);
+
+                const actionsRow3 = document.createElement('div');
+                actionsRow3.className = 'command-actions-row';
+                actionsRow3.appendChild(splitContainer);
+
+                const copyBtn3 = document.createElement('button');
+                copyBtn3.className = 'copy-command-btn';
+                copyBtn3.setAttribute('title', 'Copy command');
+                copyBtn3.innerHTML = `<svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
+                copyBtn3.addEventListener('click', () => {
+                  navigator.clipboard.writeText(step.command).then(() => {
+                    copyBtn3.innerHTML = `<svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>`;
+                    setTimeout(() => {
+                      copyBtn3.innerHTML = `<svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
+                    }, 1500);
+                  });
+                });
+                actionsRow3.appendChild(copyBtn3);
+                commandWrapper.appendChild(actionsRow3);
+              }
+
+              card.appendChild(commandWrapper);
+            }
+            list.appendChild(card);
+          });
+          container.appendChild(list);
+        }
+        if (response.error) {
+          const errorLine = document.createElement('div');
+          errorLine.textContent = `Error: ${response.error}`;
+          errorLine.style.color = '#f85149';
+          container.appendChild(errorLine);
+        }
+      } else {
+        container.textContent = response || 'No response received.';
+      }
+    }
+
+    // Helper: return true if any step contains an executable command
+    function hasExecutableCommand(steps) {
+      if (!Array.isArray(steps)) return false;
+      return steps.some((s) => s && s.command);
+    }
+
+    // Process a single agent response and auto-continue if `is_continue` is true
+    // and there are no executable commands in the returned steps.
+    async function processAgentResponse(agentMessage, response) {
+      if (!response) return;
+
+      // Expose the latest investigation object for potential use by the page
+      if (response.investigation_update && typeof response.investigation_update === 'object') {
+        window.investigating_obj = response.investigation_update;
+      }
+
+      const agentContent = agentMessage.querySelector('.message-content');
+      renderPlanState(response.decision || 'understand');
+      populateAgentContent(agentContent, response);
+
+      // If backend asked to continue, and there are no executable commands, call respond()
+      let loopCount = 0;
+      while (response && response.is_continue) {
+        // If any step contains a command, stop auto-continuation to wait for user permission
+        if (hasExecutableCommand(response.steps)) {
+          break;
+        }
+
+        // No investigation update to continue with — stop
+        if (!response.investigation_update) break;
+
+        loopCount += 1;
+        if (loopCount > 10) break; // safety to avoid infinite loops
+
+        try {
+          setBusy(true);
+          addLogOutput('Auto-continuation: sending investigation object to agent.');
+          const nextPrompt = JSON.stringify(response.investigation_update);
+          const nextResponse = await window.pywebview.api.respond(nextPrompt);
+          response = nextResponse;
+
+          if (response.investigation_update && typeof response.investigation_update === 'object') {
+            window.investigating_obj = response.investigation_update;
+          }
+
+          populateAgentContent(agentContent, response);
+        } catch (err) {
+          addLogOutput(`Auto-continue error: ${err.message || err}`, true);
+          break;
+        } finally {
+          setBusy(false);
+        }
+      }
+    }
+
+    async function proceedToNextStep() {
+      if (awaitingNextStep && currentCommand) {
+        awaitingNextStep = false;
+        setBusy(true);
+        const agentMessage = appendMessage('agent', 'Analyzing...');
+        addLogOutput('Agent is analyzing the latest command result.');
+
+        try {
+          if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.respond !== 'function') {
+            throw new Error('The desktop API is not available.');
+          }
+
+          const prompt = pendingContextPrompt || 'continue with next step';
+          pendingContextPrompt = null;
+          const response = await window.pywebview.api.respond(prompt);
+          await processAgentResponse(agentMessage, response);
+        } catch (error) {
+          agentMessage.querySelector('.message-content').textContent = `Error: ${error.message || error}`;
+        } finally {
+          setBusy(false);
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+      }
+    }
+
+    async function executeCommand(button, command, useSudo) {
+      try {
+        button.disabled = true;
+        const toggleSibling = button.closest('.split-btn-container')?.querySelector('.split-toggle');
+        if (toggleSibling) {
+          toggleSibling.disabled = true;
+        }
+        button.textContent = 'Running...';
+        currentCommand = command;
+
+        if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.run_command !== 'function') {
+          throw new Error('The desktop API is not available.');
+        }
+
+        const result = await window.pywebview.api.run_command(command, useSudo);
+        const outputText = (result.output || result.error || '').trim() || (result.success ? '(Command executed)' : 'Command failed');
+
+        if (result.success) {
+          addTerminalOutput(command, outputText);
+          button.style.borderColor = 'var(--accent-green)';
+          button.textContent = '✓ Success';
+        } else {
+          addTerminalOutput(command, outputText, true);
+          button.style.borderColor = '#f85149';
+          button.textContent = '✗ Failed';
+        }
+
+        const report = await window.pywebview.api.report_command_output(command, outputText, result.success);
+        pendingContextPrompt = report.next_prompt || null;
+
+        button.disabled = true;
+        if (toggleSibling) {
+          toggleSibling.disabled = true;
+        }
+        awaitingNextStep = true;
+
+        // Proceed to next step which will call respond and handle is_continue
+        setTimeout(() => proceedToNextStep(), 1000);
+      } catch (error) {
+        addTerminalOutput(command, `Error: ${error.message || error}`, true);
+        button.style.borderColor = '#f85149';
+        button.textContent = '✗ Error';
+        button.disabled = true;
+      }
+    }
+
+    function appendMessage(role, text) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'message-block';
+
+      const header = document.createElement('div');
+      header.className = 'message-header';
+
+      const label = document.createElement('span');
+      label.className = role === 'user' ? 'user-label' : 'agent-label';
+      if (role === 'user') {
+        label.textContent = 'YOU';
+      } else {
+        label.innerHTML = `
+          <svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+            stroke-width="2" viewbox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg">
+            <path d="m16 18 6-6-6-6"></path>
+            <path d="m8 6-6 6 6 6"></path>
+            <path d="m14.5 4-5 16"></path>
+          </svg>
+          LINUX AGENT`;
+      }
+
+      const timestamp = document.createElement('span');
+      timestamp.className = 'timestamp';
+      const timestampValue = text && typeof text === 'object' && (text.timestamp || text.created || text.modified)
+        ? text.timestamp || text.created || text.modified
+        : null;
+      timestamp.textContent = timestampValue ? new Date(timestampValue).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : formatTime();
+
+      header.appendChild(label);
+      header.appendChild(timestamp);
+
+      const content = document.createElement('div');
+      content.className = 'message-content';
+
+      if (typeof text === 'string') {
+        const trimmed = text.trim();
+        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            populateAgentContent(content, parsed);
+          } catch (error) {
+            content.textContent = text;
+          }
+        } else {
+          content.textContent = text;
+        }
+      } else if (text && typeof text === 'object') {
+        const payload = text.role === 'assistant' || text.role === 'user'
+          ? text.content
+          : text;
+
+        if (role === 'agent') {
+          if (typeof payload === 'string') {
+            const trimmed = payload.trim();
+            if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+              try {
+                const parsed = JSON.parse(trimmed);
+                populateAgentContent(content, parsed);
+              } catch (error) {
+                content.textContent = payload;
+              }
+            } else {
+              content.textContent = payload;
+            }
+          } else if (payload && typeof payload === 'object') {
+            populateAgentContent(content, payload);
+          } else {
+            content.textContent = '';
+          }
+        } else if (role === 'user') {
+          content.textContent = typeof payload === 'string' ? payload : (payload && payload.content) || '';
+        }
+      }
+
+      wrapper.appendChild(header);
+      wrapper.appendChild(content);
+      chatMessages.appendChild(wrapper);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      return wrapper;
+    }
+
+    let pendingAttachment = null;
+
+    function updateAttachmentStatus(fileName) {
+      if (!attachmentStatus || !attachmentLabel) {
+        return;
+      }
+
+      if (!fileName) {
+        attachmentStatus.classList.remove('is-visible');
+        attachmentLabel.textContent = 'No file attached';
+        return;
+      }
+
+      attachmentStatus.classList.add('is-visible');
+      attachmentLabel.textContent = fileName;
+    }
+
+    function clearPendingAttachment() {
+      pendingAttachment = null;
+      if (logFileInput) {
+        logFileInput.value = '';
+      }
+      updateAttachmentStatus(null);
+    }
+
+    async function pickLogFile() {
+      if (!logFileInput) {
+        return;
+      }
+
+      logFileInput.click();
+    }
+
+    function setBusy(isBusy) {
+      chatInput.disabled = isBusy;
+      sendButton.disabled = isBusy;
+      sendButton.style.opacity = isBusy ? '0.6' : '1';
+      sendButton.style.cursor = isBusy ? 'wait' : 'pointer';
+      if (attachLogButton) {
+        attachLogButton.disabled = isBusy;
+        attachLogButton.style.opacity = isBusy ? '0.6' : '1';
+      }
+    }
+
+    async function sendMessage() {
+      const text = chatInput.value.trim();
+      if (!text && !pendingAttachment) {
+        return;
+      }
+
+      const attachedFileName = pendingAttachment ? pendingAttachment.name : null;
+      const userMessage = text || `Attached log: ${attachedFileName || 'selected file'}`;
+
+      appendMessage('user', userMessage);
+      chatInput.value = '';
+      setBusy(true);
+      const agentMessage = appendMessage('agent', 'Thinking...');
+
+      try {
+        if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.respond !== 'function') {
+          throw new Error('The desktop API is not available.');
+        }
+
+        const response = await window.pywebview.api.respond(
+          userMessage,
+          attachedFileName || null,
+          pendingAttachment ? pendingAttachment.text : null,
+        );
+        await processAgentResponse(agentMessage, response);
+        if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.save_current_session === 'function') {
+          await window.pywebview.api.save_current_session();
+        }
+      } catch (error) {
+        agentMessage.querySelector('.message-content').textContent = `Sorry, the agent could not respond: ${error.message || error}`;
+      } finally {
+        clearPendingAttachment();
+        setBusy(false);
+        chatInput.focus();
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+    }
+
+    if (attachLogButton) {
+      attachLogButton.addEventListener('click', pickLogFile);
+    }
+
+    if (logFileInput) {
+      logFileInput.addEventListener('change', async (event) => {
+        const [file] = event.target.files || [];
+        if (!file) {
+          clearPendingAttachment();
+          return;
+        }
+
+        const isTextFile = /\.txt$/i.test(file.name) || file.type === 'text/plain';
+        if (!isTextFile) {
+          addLogOutput('Please select a .txt file to attach.', true);
+          clearPendingAttachment();
+          return;
+        }
+
+        pendingAttachment = {
+          name: file.name,
+          text: await file.text(),
+        };
+        updateAttachmentStatus(file.name);
+      });
+    }
+
+    if (attachmentClear) {
+      attachmentClear.addEventListener('click', clearPendingAttachment);
+    }
+
+    chatInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        sendMessage();
+      }
+    });
+
+    sendButton.addEventListener('click', sendMessage);
+
+    if (sidebarToggle) {
+      sidebarToggle.addEventListener('click', toggleSidebar);
+    }
+
+    if (rightPanelResizer) {
+      rightPanelResizer.addEventListener('mousedown', startRightPanelResize);
+    }
+
+    if (modelSelect) {
+      modelSelect.addEventListener('change', async () => {
+        if (modelSelect.disabled) {
+          return;
+        }
+        if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.set_model !== 'function') {
+          return;
+        }
+
+        try {
+          const result = await window.pywebview.api.set_model(modelSelect.value);
+          if (result && result.status === 'ok') {
+            addLogOutput(`Model switched to ${result.model}.`);
+            modelSelect.value = result.model;
+          } else if (result && result.status === 'error') {
+            addLogOutput(result.message || 'Unable to switch model.', true);
+            modelSelect.value = result.model;
+          }
+        } catch (error) {
+          addLogOutput(`Unable to switch model: ${error.message || error}`, true);
+        }
+      });
+    }
+
+    sessionsButton.addEventListener('click', toggleSessionsPanel);
+    closeSessionsButton.addEventListener('click', toggleSessionsPanel);
+
+    if (settingsNav) {
+      settingsNav.addEventListener('click', async () => {
+        if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.open_settings === 'function') {
+          await window.pywebview.api.open_settings();
+        }
+      });
+    }
+
+    newSessionButton.addEventListener('click', async (event) => {
+      event.preventDefault();
+      if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.create_new_session !== 'function') {
+        addLogOutput('The desktop API is not available.', true);
+        return;
+      }
+      try {
+        const result = await window.pywebview.api.create_new_session();
+        activeSessionId = result && result.session_id ? result.session_id : null;
+        sidebar.classList.remove('is-session-mode');
+        sessionsOpen = false;
+        window.investigating_obj = null;
+        clearChatView();
+        clearTerminalView();
+        updateAutoAllowUI(false);
+        appendMessage('agent', 'I’m ready to help with Linux troubleshooting. Ask me anything.');
+        setSessionTitle('Live Session');
+        if (modelSelect) {
+          modelSelect.disabled = false;
+          modelSelect.classList.remove('locked');
+          if (result && typeof result.current_chat_model === 'string' && result.current_chat_model) {
+            modelSelect.value = result.current_chat_model;
+          } else if (result && typeof result.default_model === 'string' && result.default_model) {
+            modelSelect.value = result.default_model;
+          }
+        }
+        addLogOutput(result && result.status ? `New ${result.status} created.` : 'New session created.');
+        renderSessionList();
+      } catch (error) {
+        addLogOutput(`Unable to create a new session: ${error.message || error}`, true);
+      }
+    });
+
+    renderSessionList();
+    window.addEventListener('load', loadAvailableModels);
+    setTimeout(loadAvailableModels, 100);
+
+    document.querySelectorAll('.control-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (btn.innerText === '✕') {
+          if (confirm('Close application?')) window.close();
+        }
+      });
+    });
+})();
+}
+if (isSettingsPage) {
+(function() {
+const sidebar = document.querySelector('.sidebar');
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    const defaultModelSelect = document.getElementById('defaultModelSelect');
+    const modeButtons = Array.from(document.querySelectorAll('.mode-option'));
+    const cancelButton = document.getElementById('cancelSettingsButton');
+    const saveButton = document.getElementById('saveSettingsButton');
+    const newSessionButton = document.getElementById('newSessionButton');
+    const sessionsButton = document.querySelector('[data-role="sessions-toggle"]');
+
+    function toggleSidebar() {
+      const isCollapsed = sidebar.classList.toggle('is-collapsed');
+      if (sidebarToggle) {
+        sidebarToggle.classList.toggle('is-closed', isCollapsed);
+        sidebarToggle.setAttribute('aria-label', isCollapsed ? 'Open sidebar' : 'Collapse sidebar');
+      }
+    }
+
+    function setSelectedMode(mode) {
+      modeButtons.forEach((button) => {
+        const isSelected = button.dataset.mode === mode;
+        button.classList.toggle('is-selected', isSelected);
+        button.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+      });
+    }
+
+    async function loadAvailableModels(retries = 12) {
+      if (!defaultModelSelect) {
+        return;
+      }
+      if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.list_models !== 'function') {
+        if (retries > 0) {
+          setTimeout(() => loadAvailableModels(retries - 1), 250);
+        }
+        return;
+      }
+
+      defaultModelSelect.innerHTML = '<option>Loading models...</option>';
+
+      try {
+        const models = await window.pywebview.api.list_models();
+        const normalizedModels = Array.isArray(models) ? models : (models && Array.isArray(models.models) ? models.models : []);
+
+        defaultModelSelect.innerHTML = '';
+        if (!normalizedModels.length) {
+          const option = document.createElement('option');
+          option.value = '';
+          option.textContent = 'No models found';
+          defaultModelSelect.appendChild(option);
+          return;
+        }
+
+        normalizedModels.forEach((modelName) => {
+          const option = document.createElement('option');
+          option.value = modelName;
+          option.textContent = modelName;
+          defaultModelSelect.appendChild(option);
+        });
+
+        const settings = await window.pywebview.api.get_settings();
+        if (settings && typeof settings.default_model === 'string' && settings.default_model) {
+          defaultModelSelect.value = settings.default_model;
+        }
+        const selectedMode = settings && settings.permission_mode === 'auto_confirm' ? 'auto_confirm' : 'ask_before_running';
+        setSelectedMode(selectedMode);
+      } catch (error) {
+        defaultModelSelect.innerHTML = '<option>No models found</option>';
+        console.error(error);
+      }
+    }
+
+    async function saveSettings() {
+      if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.save_settings !== 'function') {
+        return;
+      }
+      const selectedMode = modeButtons.find((button) => button.classList.contains('is-selected'))?.dataset.mode || 'ask_before_running';
+      const payload = {
+        default_model: defaultModelSelect.value,
+        permission_mode: selectedMode,
+      };
+      try {
+        await window.pywebview.api.save_settings(payload);
+        if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.open_main === 'function') {
+          await window.pywebview.api.open_main();
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    modeButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        setSelectedMode(button.dataset.mode);
+      });
+    });
+
+    if (sidebarToggle) {
+      sidebarToggle.addEventListener('click', toggleSidebar);
+    }
+
+    if (cancelButton) {
+      cancelButton.addEventListener('click', async () => {
+        if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.open_main === 'function') {
+          await window.pywebview.api.open_main();
+        }
+      });
+    }
+
+    if (saveButton) {
+      saveButton.addEventListener('click', saveSettings);
+    }
+
+    if (newSessionButton) {
+      newSessionButton.addEventListener('click', async (event) => {
+        event.preventDefault();
+        if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.create_new_session !== 'function') {
+          console.error('The desktop API is not available.');
+          return;
+        }
+
+        try {
+          await window.pywebview.api.create_new_session();
+          if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.open_main === 'function') {
+            await window.pywebview.api.open_main();
+          }
+        } catch (error) {
+          console.error(error);
+        }
+      });
+    }
+
+    if (sessionsButton) {
+      sessionsButton.addEventListener('click', async () => {
+        if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.open_main === 'function') {
+          await window.pywebview.api.open_main();
+        }
+      });
+    }
+
+    document.querySelectorAll('[data-role="settings-nav"]').forEach((nav) => {
+      nav.addEventListener('click', async () => {
+        if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.open_settings === 'function') {
+          await window.pywebview.api.open_settings();
+        }
+      });
+    });
+
+    window.addEventListener('load', loadAvailableModels);
+    setTimeout(loadAvailableModels, 100);
+})();
+}

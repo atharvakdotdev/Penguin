@@ -348,7 +348,7 @@ class Api:
             windows = webview.windows
             if windows:
                 settings_path = Path(__file__).resolve().parent / "templates" / "settings.html"
-                windows[0].load_url(str(settings_path))
+                windows[0].load_url(settings_path.as_uri())
             return {"status": "ok"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
@@ -359,7 +359,7 @@ class Api:
             windows = webview.windows
             if windows:
                 main_path = Path(__file__).resolve().parent / "templates" / "index.html"
-                windows[0].load_url(str(main_path))
+                windows[0].load_url(main_path.as_uri())
             return {"status": "ok"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
