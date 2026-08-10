@@ -62,7 +62,7 @@
             </svg>
             Sessions
           </li>
-          <li class="nav-item">
+          <li class="nav-item" data-role="knowledge-base-nav" role="button" tabindex="0">
             <svg fill="none" height="24" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
               stroke-width="2" viewbox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg">
               <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"></path>
@@ -285,7 +285,7 @@
             <div class="terminal-res">3 packets transmitted, 3 received, 0% loss</div>
             <span class="terminal-time">21:42:33</span> -->
           </div>
-          <button class="btn-full-terminal">
+          <!-- <button class="btn-full-terminal">
             Open Full Terminal
             <svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
               stroke-width="2" viewbox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg">
@@ -293,10 +293,17 @@
               <polyline points="15 3 21 3 21 9"></polyline>
               <line x1="10" x2="21" y1="14" y2="3"></line>
             </svg>
-          </button>
+          </button> -->
         </div>
       </aside>
       <!-- END: Right Inspector -->
+    </div>
+  </div>
+  <div class="modal-backdrop hidden" id="knowledgeBaseModal" aria-hidden="true">
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="knowledgeBaseDialogTitle">
+      <h3 id="knowledgeBaseDialogTitle">Knowledge Base</h3>
+      <p>RAG coming soon.</p>
+      <button class="action-btn" id="knowledgeBaseCloseButton" type="button">Close</button>
     </div>
   </div>
   </body>

@@ -4,6 +4,7 @@ const isChatPage = pageType === "chat";
 const isSettingsPage = pageType === "settings";
 const sidebar = document.querySelector(".sidebar");
 const sidebarToggle = document.getElementById("sidebarToggle");
+const knowledgeBaseModal = document.getElementById("knowledgeBaseModal");
 function toggleSidebar() {
   if (!sidebar) return;
   const isCollapsed = sidebar.classList.toggle("is-collapsed");
@@ -12,6 +13,64 @@ function toggleSidebar() {
     sidebarToggle.setAttribute("aria-label", isCollapsed ? "Open sidebar" : "Collapse sidebar");
   }
 }
+function openKnowledgeBaseDialog() {
+  if (!knowledgeBaseModal) return;
+  knowledgeBaseModal.classList.remove("hidden");
+  knowledgeBaseModal.setAttribute("aria-hidden", "false");
+}
+function closeKnowledgeBaseDialog() {
+  if (!knowledgeBaseModal) return;
+  knowledgeBaseModal.classList.add("hidden");
+  knowledgeBaseModal.setAttribute("aria-hidden", "true");
+}
+function attachKnowledgeBaseDialogHandlers() {
+  document.querySelectorAll('[data-role="knowledge-base-nav"]').forEach((navItem) => {
+    navItem.addEventListener('click', (event) => {
+      event.preventDefault();
+      openKnowledgeBaseDialog();
+    });
+
+    navItem.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openKnowledgeBaseDialog();
+      }
+    });
+  });
+
+  const closeButton = document.getElementById('knowledgeBaseCloseButton');
+  if (closeButton) {
+    closeButton.addEventListener('click', closeKnowledgeBaseDialog);
+  }
+
+  if (knowledgeBaseModal) {
+    knowledgeBaseModal.addEventListener('click', (event) => {
+      if (event.target === knowledgeBaseModal) {
+        closeKnowledgeBaseDialog();
+      }
+    });
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      closeKnowledgeBaseDialog();
+    }
+  });
+}
+
+function navigateToPage(pageName, apiMethodName) {
+  const targetUrl = new URL(pageName, window.location.href).href;
+  if (window.pywebview && window.pywebview.api && typeof window.pywebview.api[apiMethodName] === 'function') {
+    try {
+      window.pywebview.api[apiMethodName]();
+    } catch (error) {
+      // Fall back to direct navigation if the pywebview callback fails.
+    }
+  }
+  window.location.assign(targetUrl);
+}
+
+attachKnowledgeBaseDialogHandlers();
 if (isChatPage) {
 (function() {
 const chatInput = document.getElementById('chatInput');
@@ -110,7 +169,16 @@ const chatInput = document.getElementById('chatInput');
       const executions = Array.isArray(appliedState.executed_commands) ? appliedState.executed_commands : [];
       const commands = new Set();
       executions.forEach((entry) => {
-        if (entry && typeof entry.command === 'string' && entry.command.trim()) {
+        if (
+          entry &&
+          typeof entry.command === 'string' &&
+          entry.command.trim() &&
+          (
+            typeof entry.success === 'boolean' ||
+            typeof entry.timestamp === 'string' ||
+            (typeof entry.output === 'string' && entry.output.trim() !== '')
+          )
+        ) {
           commands.add(entry.command.trim());
         }
       });
@@ -1041,10 +1109,9 @@ const chatInput = document.getElementById('chatInput');
     closeSessionsButton.addEventListener('click', toggleSessionsPanel);
 
     if (settingsNav) {
-      settingsNav.addEventListener('click', async () => {
-        if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.open_settings === 'function') {
-          await window.pywebview.api.open_settings();
-        }
+      settingsNav.addEventListener('click', (event) => {
+        event.preventDefault();
+        navigateToPage('settings.html', 'open_settings');
       });
     }
 
@@ -1196,10 +1263,9 @@ const sidebar = document.querySelector('.sidebar');
     }
 
     if (cancelButton) {
-      cancelButton.addEventListener('click', async () => {
-        if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.open_main === 'function') {
-          await window.pywebview.api.open_main();
-        }
+      cancelButton.addEventListener('click', (event) => {
+        event.preventDefault();
+        navigateToPage('index.html', 'open_main');
       });
     }
 
@@ -1217,28 +1283,24 @@ const sidebar = document.querySelector('.sidebar');
 
         try {
           await window.pywebview.api.create_new_session();
-          if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.open_main === 'function') {
-            await window.pywebview.api.open_main();
-          }
         } catch (error) {
           console.error(error);
         }
+        navigateToPage('index.html', 'open_main');
       });
     }
 
     if (sessionsButton) {
-      sessionsButton.addEventListener('click', async () => {
-        if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.open_main === 'function') {
-          await window.pywebview.api.open_main();
-        }
+      sessionsButton.addEventListener('click', (event) => {
+        event.preventDefault();
+        navigateToPage('index.html', 'open_main');
       });
     }
 
     document.querySelectorAll('[data-role="settings-nav"]').forEach((nav) => {
-      nav.addEventListener('click', async () => {
-        if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.open_settings === 'function') {
-          await window.pywebview.api.open_settings();
-        }
+      nav.addEventListener('click', (event) => {
+        event.preventDefault();
+        navigateToPage('settings.html', 'open_settings');
       });
     });
 
