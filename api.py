@@ -131,13 +131,29 @@ class Api:
 
     def _session_snapshot(self):
         now = datetime.now(timezone.utc).isoformat()
+        # When persisting a session, only include executed commands that
+        # belong to this session. This prevents commands executed in other
+        # sessions from appearing as if they were run in this one.
+        investigation_copy = copy.deepcopy(self.investigating_obj) or {}
+        executions = investigation_copy.get("executed_commands", [])
+        if executions:
+            if self.active_session_id is None:
+                # Do not persist any executed commands when there is no active
+                # session. Commands recorded with session_id=None likely came
+                # from previous runs and should not be carried into a new
+                # session's saved investigation.
+                investigation_copy["executed_commands"] = []
+            else:
+                filtered = [e for e in executions if not isinstance(e, dict) or e.get("session_id") == self.active_session_id]
+                investigation_copy["executed_commands"] = filtered
+
         return {
             "id": self.active_session_id,
             "title": self._derive_session_title(),
             "created": now,
             "modified": now,
             "chatHistory": self._sanitize_chat_history(self.chat_history),
-            "investigation": copy.deepcopy(self.investigating_obj),
+            "investigation": investigation_copy,
             "isContinue": bool(self.continue_event),
             "auto_allow": bool(self.auto_allow),
             "model": self.current_chat_model,
@@ -410,10 +426,6 @@ class Api:
         # kept for backward compatibility; delegate to InvestigationState
         self.state , self.continue_event = self.investigation.transition_state(decision, self.state)
 
-    def _apply_controller_transitions(self, parsed):
-        # kept for backward compatibility; delegate to InvestigationState
-        self.state = self.investigation.apply_controller_transitions(parsed, self.state)
-        self.investigating_obj = self.investigation.obj
 
     def parse_response(self, content):
         if not content:
@@ -442,19 +454,19 @@ class Api:
             update = parsed.get("investigation_update")
             if isinstance(update, dict):
                 self._merge_investigation_update(update)
-            self._apply_controller_transitions(parsed)
+            # self._apply_controller_transitions(parsed)
             command = parsed.get("command")
             if decision == "run_command" and isinstance(command, str):
                 if not self._should_run_command(command):
                     return {
                         "reply": "This command has already been executed. Choose a different diagnostic action.",
-                        "decision": "need_more_information",
+                        "decision": decision,
                         "steps": [],
                         "investigation_update": {},
                     }
             return {
                 "reply": parsed.get("reply", cleaned),
-                "decision": decision,
+                "decision": self.state,
                 "command": command,
                 "requires_sudo": parsed.get("requires_sudo", False),
                 "steps": parsed.get("steps", []) if isinstance(parsed.get("steps"), list) else [],
@@ -508,16 +520,7 @@ class Api:
                 self.chat_started = True
             self.chat_history.append({"role": "user", "content": normalized_message})
             self.save_current_session()
-        # if not self.investigating_obj['root_cause']:
-        #     self.investigating_obj['root_cause'] =  chat(
-        #             model="qwen3.5:0.8b",
-        #             messages=normalized_message,
-        #             think=False,
-        #             options = {
-        #             "num_thread": 4
-        #             }
-        #         ).get("message", {}).get("content", "")
-            
+
         candidate_models = []
         if self.current_chat_model:
             candidate_models.append(self.current_chat_model)
@@ -526,9 +529,9 @@ class Api:
                 candidate_models.append(fallback)
         # print(self.build_messages(normalized_message))
         last_error = None
-        # print(model_name)
         for model_name in candidate_models:
             try:
+                print(f"[Penguin] Trying Ollama model: {model_name}", flush=True)
                 response = chat(
                     model=model_name,
                     messages=self.build_messages(normalized_message),
@@ -540,7 +543,7 @@ class Api:
                         "num_thread": 4
                     }
                 )
-                print(model_name)
+                print(f"[Penguin] Ollama response received from: {model_name}", flush=True)
 
                 content = (
                     response.get("message", {}).get("content", "")
@@ -573,10 +576,11 @@ class Api:
                     if response_data["steps"]:
                         response_data["has_more_steps"] = len(response_data["steps"]) > 1
                         response_data["next_step"] = response_data["steps"][0]
-                    # print(response_data)
+                    print(response_data)
                     return response_data
             except Exception as exc:
                 last_error = exc
+                print(f"[Penguin] Ollama model failed ({model_name}): {exc}", flush=True)
 
         if last_error is not None:
             return {"reply": "Model Error", "steps": [], "error": str(last_error)}
@@ -599,8 +603,9 @@ Command:
 Output:
 {output_text}
 
-Do NOT repeat this command unless the result has changed.
+Do NOT repeat this command .
 Choose the next diagnostic step based on the above output.
+REMEMBER to change the next goal if the command output indicates that the goal has been achieved or is no longer relevant.
 """
         return {
             "status": "reported",
@@ -615,6 +620,7 @@ Choose the next diagnostic step based on the above output.
             "success": success,
             "output": output,
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "session_id": self.active_session_id,
         }
         executions.append(execution)
 
@@ -623,8 +629,29 @@ Choose the next diagnostic step based on the above output.
         if not executions:
             return True
 
-        last_entry = executions[-1]
-        return not (isinstance(last_entry, dict) and last_entry.get("command") == command)
+        # Consider only executions from the current active session when
+        # deciding whether a command was just-run. This avoids treating
+        # identical commands run in other sessions as if they were run
+        # immediately prior in this session.
+        if self.active_session_id is None:
+            # no active session: fall back to checking the very last entry
+            last_entry = executions[-1]
+            return not (isinstance(last_entry, dict) and last_entry.get("command") == command)
+
+        # Walk backwards to find the most recent execution for this session
+        last_entry_for_session = None
+        for entry in reversed(executions):
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("session_id") == self.active_session_id:
+                last_entry_for_session = entry
+                break
+
+        if last_entry_for_session is None:
+            # no previous executions in this session
+            return True
+
+        return not (last_entry_for_session.get("command") == command)
 
     def run_command(self, command, use_sudo=False):
         """Execute a shell command unless the same command was just run in the immediately previous step."""

@@ -1,0 +1,2 @@
+lecrowpus@lecrowpus-Inspiron-3593:~$ ttylcommand
+ttylcommand: command not found

@@ -15,6 +15,22 @@ You must respond with a single JSON object containing exactly the following keys
 - steps (array): Commands or actions to run. If Linux evidence is required, steps must contain exactly one command object. Otherwise, steps must be [].
 - investigation_update (object): Dictionary of updates to merge into the Investigation Object.
 
+For every response, recalculate investigation_update.next_goal from the complete
+Investigation Object. Consider the issue, summary, every fact, every hypothesis,
+all executed command results, confidence, current state, and the previous next_goal.
+Return a specific next goal that reduces the remaining uncertainty or completes the
+next required phase. Do not copy the previous next_goal when the evidence changes.
+
+EVIDENCE GATE FOR EVERY DECISION:
+Before choosing a decision, inspect the complete Investigation Object and the latest
+command result. State internally which existing facts support the decision, which
+hypothesis it tests or confirms, and what command result changed the assessment.
+Never advance because a step was merely attempted. A command is evidence only after
+its recorded output and success status have been reviewed. If the evidence is missing,
+contradictory, or inconclusive, remain in diagnose and choose one different command
+that tests the highest-value uncertainty. The next_goal must describe that evidence
+gap when one remains.
+
 GENERAL RULES:
 1. Output MUST be a single JSON object matching the JSON Schema. No markdown, no explanations outside JSON.
 2. Never repeat the most recently executed command.
@@ -58,7 +74,12 @@ User request and/or current investigation
 OUTPUT
 investigation_update
 {
-    hypotheses: [
+    facts: [at least one fact from the user request or current investigation]
+        {
+            key
+            value
+        }
+    hypotheses: [at least one hypothesis]
         {
             name
             confidence
@@ -83,12 +104,17 @@ solution""",
 INPUT
 Latest command output and/or current investigation
 
+DECISION CHECK
+Use facts from the Investigation Object, the active hypothesis, and the output/status
+of the most recent executed command. Do not choose solve unless that output confirms
+the hypothesis. If it does not, update the hypothesis status and diagnose again.
+
 OUTPUT
 investigation_update
 {
     next_goal
-    facts (optional)
-    hypotheses (optional, update confidence/status)
+    facts: [at least one fact]
+    hypotheses: [at least one hypothesis, update confidence/status]
     confidence (optional, overall confidence)
 }
 steps=[
@@ -113,6 +139,11 @@ None""",
 
 INPUT
 Confirmed hypothesis
+
+DECISION CHECK
+The hypothesis must be confirmed by a recorded command result, not by confidence
+alone. Reconcile the command's success status and output with every relevant fact
+before selecting the repair. If confirmation is absent, choose diagnose instead.
 
 OUTPUT
 investigation_update
@@ -143,6 +174,11 @@ None""",
 INPUT
 Repair command results
 
+DECISION CHECK
+Review the recorded repair result and its output against the original facts and root
+cause. A successful process exit is not proof that the issue is fixed. Verification
+must test the user-visible behavior or the specific root-cause condition.
+
 OUTPUT
 investigation_update
 {
@@ -171,11 +207,17 @@ None""",
 INPUT
 Successful verification
 
+DECISION CHECK
+Only finish when a recorded verification result confirms the fix, and the reply can
+be supported by the issue, root cause, repair, and verification evidence. Otherwise
+return to verify or diagnose.
+
 OUTPUT
 reply (Summary of: issue, root_cause, repair, and verification)
 investigation_update
 {
     hypotheses=[]
+    next_goal
 }
 steps=[]
 
@@ -266,8 +308,7 @@ class InvestigationState:
 
 
     def ensure_next_goal(self, state):
-        if state == "finished" or self.obj.get("status") in {"finished", "resolved", "complete"}:
-            self.obj["next_goal"] = "Verify repair"
+        return self.obj.get("next_goal")
 
     def reconcile_state(self, current_state, parsed=None):
         """Keep the state aligned to the LLM's own decision flow.
@@ -277,9 +318,6 @@ class InvestigationState:
         between understand -> hypothesis -> diagnose -> solve -> verify -> finished.
         """
         state = current_state
-
-        if state == "finished":
-            self.obj["next_goal"] = "over"
 
         return state
 
@@ -336,42 +374,33 @@ class InvestigationState:
 
         if not self.obj.get("summary"):
             self.obj["summary"] = "Reviewing the investigation progress."
-        if not self.obj.get("next_goal"):
-            self.obj["next_goal"] = "Clarify the next diagnostic or repair step."
-
         self.ensure_next_goal(state)
 
     def transition_state(self, decision, current_state):
         # Returns the new state based on the decision (preserves original mapping)
         continue_ = False
         state = current_state
-        if decision == "understand":
-            state = "understand"
-            continue_ = False
-        elif decision == "hypothesis":
+        if current_state == "understand":
             state = "hypothesis"
-            continue_ = True
-        elif decision == "diagnose":
+            continue_ = False
+        elif current_state == "hypothesis":
             state = "diagnose"
             continue_ = True
-        elif decision == "solve":
-            state = "solve"
+        elif current_state == "diagnose":
+            state = decision
             continue_ = True
-        elif decision == "verify":
-            state = "verify"
+        elif current_state == "solve":
+            state = decision
             continue_ = True
-        elif decision == "finished":
-            state = "finished"
+        elif current_state == "verify":
+            state = decision
+            continue_ = True
+        elif current_state == "finished":
+            state = decision
             continue_ = False
         print(continue_)
         return state, continue_
 
-    def apply_controller_transitions(self, parsed, current_state):
-        """Controller-only enforcement pass.
-
-        The LLM owns investigation state transitions and decisions. The
-        controller only needs to preserve the current state and enforce
-        execution constraints such as duplicate command prevention and history
-        maintenance.
-        """
-        return current_state
+    # def apply_controller_transitions(self, parsed, current_state):
+    #     print(parsed)
+    #     return current_state

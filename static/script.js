@@ -60,13 +60,6 @@ function attachKnowledgeBaseDialogHandlers() {
 
 function navigateToPage(pageName, apiMethodName) {
   const targetUrl = new URL(pageName, window.location.href).href;
-  if (window.pywebview && window.pywebview.api && typeof window.pywebview.api[apiMethodName] === 'function') {
-    try {
-      window.pywebview.api[apiMethodName]();
-    } catch (error) {
-      // Fall back to direct navigation if the pywebview callback fails.
-    }
-  }
   window.location.assign(targetUrl);
 }
 
@@ -514,7 +507,6 @@ const chatInput = document.getElementById('chatInput');
 
 
         if (Array.isArray(response.steps) && response.steps.length) {
-          const executedCommands = getExecutedCommandSet();
           const list = document.createElement('div');
           list.className = 'card-list';
           let autoTriggered = false;
@@ -539,7 +531,7 @@ const chatInput = document.getElementById('chatInput');
               commandDisplay.textContent = `$ ${step.command}`;
               commandWrapper.appendChild(commandDisplay);
 
-              const commandAlreadyExecuted = executedCommands.has(step.command.trim());
+              const commandAlreadyExecuted = false;
 
               if (commandAlreadyExecuted) {
                 const splitContainer = document.createElement('div');
@@ -833,11 +825,16 @@ const chatInput = document.getElementById('chatInput');
         button.textContent = 'Running...';
         currentCommand = command;
 
-        if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.run_command !== 'function') {
+        if (!window.pywebview || !window.pywebview.api) {
           throw new Error('The desktop API is not available.');
         }
 
-        const result = await window.pywebview.api.run_command(command, useSudo);
+        const runApiCommand = window.pywebview.api.run_command;
+        if (typeof runApiCommand !== 'function') {
+          throw new Error('The desktop API is not available.');
+        }
+
+        const result = await runApiCommand(command, useSudo);
         const outputText = (result.output || result.error || '').trim() || (result.success ? '(Command executed)' : 'Command failed');
 
         if (result.success) {
@@ -1244,9 +1241,7 @@ const sidebar = document.querySelector('.sidebar');
       };
       try {
         await window.pywebview.api.save_settings(payload);
-        if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.open_main === 'function') {
-          await window.pywebview.api.open_main();
-        }
+        navigateToPage('index.html', 'open_main');
       } catch (error) {
         console.error(error);
       }

@@ -113,6 +113,9 @@ JSON_SCHEMA = {
         "investigation_update": {
             "type": "object",
             "additionalProperties": False,
+            "required": [
+                "next_goal"
+            ],
             "properties": {
 
                 "issue": {
@@ -263,7 +266,46 @@ JSON_SCHEMA = {
                 }
             }
         }
-    }
+    },
+
+    "allOf": [
+        {
+            "if": {
+                "properties": {
+                    "decision": {"const": "hypothesis"}
+                }
+            },
+            "then": {
+                "properties": {
+                    "investigation_update": {
+                        "required": ["facts", "hypotheses"],
+                        "properties": {
+                            "facts": {"minItems": 1},
+                            "hypotheses": {"minItems": 1}
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "if": {
+                "properties": {
+                    "decision": {"const": "diagnose"}
+                }
+            },
+            "then": {
+                "properties": {
+                    "investigation_update": {
+                        "required": ["facts", "hypotheses"],
+                        "properties": {
+                            "facts": {"minItems": 1},
+                            "hypotheses": {"minItems": 1}
+                        }
+                    }
+                }
+            }
+        }
+    ]
 }
 
 
