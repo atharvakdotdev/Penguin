@@ -366,3 +366,222 @@ history = {
 
     "summary": ""
 }
+
+understand_schema = {
+  "type": "object",
+  "properties": {
+    "problem_statement": {
+      "type": "string",
+      "description": "A clear, concise, technically precise description of the user's problem, based only on the user query and provided logs."
+    }
+  },
+  "required": [
+    "problem_statement"
+  ],
+  "additionalProperties": False
+}
+hypothesis_schema={
+  "type": "object",
+  "properties": {
+    "hypotheses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "hypothesis": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "id",
+          "hypothesis",
+          "confidence"
+        ],
+        "additionalProperties": False
+      }
+    }
+  },
+  "required": [
+    "hypotheses"
+  ],
+  "additionalProperties": False
+}
+command_test_schema = {
+  "type": "object",
+  "properties": {
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "command",
+          "purpose"
+        ],
+        "additionalProperties": False
+      }
+    }
+  },
+  "required": [
+    "tests"
+  ],
+  "additionalProperties": False
+}
+
+facts_schema = {
+  "type": "object",
+  "properties": {
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "fact": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "description": "The command or input that directly supports this fact."
+          }
+        },
+        "required": [
+          "id",
+          "fact",
+          "source"
+        ],
+        "additionalProperties": False
+      }
+    }
+  },
+  "required": [
+    "facts"
+  ],
+  "additionalProperties": False
+}
+
+solver_scheme = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["step"],
+    "properties": {
+        "step": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "type",
+                "title",
+                "description",
+                "command",
+                "run",
+                "requires_sudo"
+            ],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "const": "command"
+                },
+
+                "title": {
+                    "type": "string"
+                },
+
+                "description": {
+                    "type": "string"
+                },
+
+                "command": {
+                    "type": "string"
+                },
+
+                "run": {
+                    "type": "boolean",
+                    "const": True
+                },
+
+                "requires_sudo": {
+                    "type": "boolean"
+                }
+            }
+        }
+    }
+}
+verification_scheme = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["step"],
+    "properties": {
+        "step": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "type",
+                "title",
+                "description",
+                "command",
+                "run"
+            ],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "const": "verification"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "command": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "run": {
+                    "type": "boolean",
+                    "const": True
+                }
+            }
+        }
+    }
+}
+verification2_scheme = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["solved"],
+    "properties": {
+        "solved": {
+            "type": "boolean"
+        }
+    }
+}
+check_diagnosis_scheme = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["contradicts"],
+    "properties": {
+        "contradicts": {
+            "type": "boolean"
+        }
+    }
+}

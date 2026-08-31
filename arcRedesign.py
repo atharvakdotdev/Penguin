@@ -41,6 +41,7 @@ def generateHypothesis(problem_statement):
 
     hypothesis = AI.respond(problem_statement, json_scheme=json_scheme, system_prompt=sysPrompt)
     return hypothesis
+
 def generateCommandToTestHypothesis(hypothesis):
     # This function generates a command to test the hypothesis
     sysPrompt= "based on the given hypothesis, generate a command that can be used to test the hypothesis. The command should be in the form of a statement that can be executed."

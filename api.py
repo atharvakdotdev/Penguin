@@ -506,32 +506,61 @@ class Api:
         return f"Attached log file: {attachment_path or 'selected file'}\n\n{cleaned_attachment}"
 
     def respond(self, message, attachment_path=None, attachment_text=None):
+        """
+        Process a user message and generate a response using an Ollama model.
+        
+        Args:
+            message: The user's text message
+            attachment_path: Optional path to a file to attach/include
+            attachment_text: Optional pre-read attachment content
+            
+        Returns:
+            A dict containing the model's reply, steps, decision, and investigation update
+        """
+        # Validate input: at least one of message, attachment_path, or attachment_text must be provided
         if not message and not attachment_path and not attachment_text:
             return {"reply": "Please enter a message.", "steps": []}
+        
+        # If an attachment path is provided, read its contents
         if attachment_path:
             with open(attachment_path,'r') as f:
                 attachment_text = f.read()
+        
+        # Compose the full user prompt by combining message and attachment content
         normalized_message = self._compose_user_prompt(message, attachment_path=attachment_path, attachment_text=attachment_text)
+        
+        # Return early if the composed message is empty after stripping whitespace
         if not normalized_message.strip():
             return {"reply": "Please enter a message.", "steps": []}
 
+        # Only add to chat history if this is not a controller prompt or internal investigation payload
+        # (these are special control messages that shouldn't be stored as regular chat history)
         if not self._is_controller_prompt(normalized_message) and not self._is_internal_investigation_payload(normalized_message):
+            # Mark chat as started on first user message
             if not self.chat_started:
                 self.chat_started = True
+            # Append user message to history and persist the session
             self.chat_history.append({"role": "user", "content": normalized_message})
             self.save_current_session()
 
+        # Build list of candidate models to try, with fallbacks
         candidate_models = []
         if self.current_chat_model:
             candidate_models.append(self.current_chat_model)
+        # Add fallback models if not already in the list
         for fallback in ["qwen2.5-coder:3b"]:
             if fallback not in candidate_models:
                 candidate_models.append(fallback)
-        # print(self.build_messages(normalized_message))
+        
+        # Track the last error for fallback reporting
         last_error = None
+        
+        # Try each model in sequence until one succeeds
         for model_name in candidate_models:
             try:
                 print(f"[Penguin] Trying Ollama model: {model_name}", flush=True)
+                
+                # Call the Ollama chat API with the model and built messages
                 response = chat(
                     model=model_name,
                     messages=self.build_messages(normalized_message),
@@ -545,24 +574,35 @@ class Api:
                 )
                 print(f"[Penguin] Ollama response received from: {model_name}", flush=True)
 
+                # Extract content from response, handling both dict and object response formats
                 content = (
                     response.get("message", {}).get("content", "")
                     if isinstance(response, dict)
                     else getattr(getattr(response, "message", None), "content", "")
                 )
 
+                # Process the response content if it exists
                 if content:
+                    # Try to parse content as JSON; if it fails, keep as string
                     assistant_payload = content
                     try:
                         assistant_payload = json.loads(content)
                     except json.JSONDecodeError:
                         assistant_payload = content
 
+                    # Add assistant response to chat history
                     self.chat_history.append({"role": "assistant", "content": assistant_payload})
+                    
+                    # Update the model that successfully responded
                     self.model = model_name
+                    
+                    # Parse the response to extract structured data (reply, steps, decision, etc.)
                     parsed = self.parse_response(content)
+                    
+                    # Persist the updated session with new message
                     self.save_current_session()
 
+                    # Build the response data structure for the frontend
                     response_data = {
                         "reply": parsed.get("reply", ""),
                         "steps": parsed.get("steps", []) if isinstance(parsed.get("steps"), list) else [],
@@ -573,18 +613,24 @@ class Api:
                         "auto_allow": self.auto_allow,
                     }
 
+                    # If there are multiple steps, mark as having more steps and include the first one
                     if response_data["steps"]:
                         response_data["has_more_steps"] = len(response_data["steps"]) > 1
                         response_data["next_step"] = response_data["steps"][0]
+                    
                     print(response_data)
                     return response_data
+                    
             except Exception as exc:
+                # Capture error and continue to next model
                 last_error = exc
                 print(f"[Penguin] Ollama model failed ({model_name}): {exc}", flush=True)
 
+        # If all models failed, return error response
         if last_error is not None:
             return {"reply": "Model Error", "steps": [], "error": str(last_error)}
 
+        # Fallback if no response generated
         return {"reply": "I couldn't generate a response.", "steps": []}
 
     def report_command_output(self, command, output, success):
