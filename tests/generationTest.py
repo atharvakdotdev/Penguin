@@ -48,7 +48,7 @@ def dignosisloop():
         )
 
         print(tests)
-        input("Press Enter to execute the tests...")
+        # input("Press Enter to execute the tests...")
 
         for test in tests["tests"]:
             result = execute_command(test["command"])

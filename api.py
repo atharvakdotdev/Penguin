@@ -24,10 +24,10 @@ class Api:
 
         self.problem_statenment=""
         self.windowobj=windowobj
-
-
-
-
+        self.hypotheses =[]
+        self.Testcommands = [] # commands to test hypothesis 
+        self.facts=[]
+        self.command_outputs=[]
         self.chat_history = []
         self.active_session_id = None
         self.active_process = None
@@ -748,6 +748,72 @@ class Api:
         print("PROBLEM STATEMENT:", self.problem_statenment)
         print("TYPE:", type(self.problem_statenment))
 
+    def dignosisloop(self):
+        self.hypotheses = self.investigation.generateHypothesis(user_request=self.problem_statenment,model_name="qwen2.5-coder:3b")
+
+        self.sendEvent(
+                    data=self.hypotheses,
+                    Data_type="hypotheses"
+                )
+
+        
+        print(self.hypotheses)
+        self.command_outputs = []
+
+        for hypothesis in self.hypotheses["hypotheses"]:
+
+            self.Testcommands = self.investigation.generateCommandsToTestHypothesis(
+                problem_statement=self.problem_statenment,
+                hypothesis=hypothesis,
+                model_name="qwen2.5-coder:3b"
+            )
+            self.sendEvent(
+                                data=self.Testcommands,
+                                Data_type="testing_hypothesis"
+                            )
+
+            print(self.Testcommands)
+            # input("Press Enter to execute the tests...")
+
+            for test in self.Testcommands["tests"]:
+                result = self.run_command(test["command"])
+                print(result)
+                self.command_outputs.append(result)
+                self.sendEvent(
+                    data=self.command_outputs,
+                    Data_type="command_outputs"
+                )
+
+        # Only runs after ALL commands from ALL hypotheses have finished
+        self.facts = self.investigation.generateFacts(
+            problem_statement=self.problem_statenment,
+            facts = self.facts,
+            command_outputs=self.command_outputs,
+            model_name="qwen2.5-coder:3b"
+        )
+        self.sendEvent(
+            data=self.facts,
+            Data_type="facts"
+        )
+
+        print("Facts:")
+        print(self.facts)
+
+        self.hypotheses = self.investigation.generateHypothesis(user_request=self.problem_statenment,model_name="qwen2.5-coder:3b",facts=self.facts,command_outputs=self.command_outputs)
+        print("Updated Hypotheses:")
+        print(self.hypotheses)
+        self.sendEvent(
+                            data=self.hypotheses,
+                            Data_type="hypotheses"
+                        )
+        
+        SOLVER_THRESHOLD = 0.9
+        for hypothesis in self.hypotheses["hypotheses"]:
+            if hypothesis["confidence"] >= SOLVER_THRESHOLD:
+                self.solverloop(command_outputs=self.command_outputs, facts=self.facts,hypothesis=hypothesis)
+            else:
+                self.dignosisloop()  # Re-run the diagnosis loop if no hypothesis meets the threshold
+
     def StartInvetigation(self,user_input,attached_path,attached ):
 
         self.problem_statenment = self.investigation.generateProblemStatement(
@@ -761,6 +827,6 @@ class Api:
             data=self.problem_statenment,
             Data_type="Problem_Statement"
         )
-
-
         
+        # Start the diagnosis loop after problem statement is identified
+        self.dignosisloop()

@@ -1120,11 +1120,88 @@ if (isChatPage) {
       investigation.summary.classList.add('identified');
     }
 
+    function formatHypotheses(hypothesesData) {
+      if (!hypothesesData || !hypothesesData.hypotheses || !Array.isArray(hypothesesData.hypotheses)) {
+        return "No hypotheses generated.";
+      }
+
+      return hypothesesData.hypotheses
+        .map((hyp, idx) => `${idx + 1}. ${hyp.hypothesis || hyp}\n   Confidence: ${hyp.confidence || 'N/A'}`)
+        .join("\n\n");
+    }
+
     function handleProblemStatement(data) {
       if (!currentInvestigation) return;
 
       currentInvestigation.text.textContent = data.problem_statement;
       updateInvestigationTitle(currentInvestigation, "Problem Identified");
+    }
+
+    function handleHypotheses(data) {
+      if (!currentInvestigation) return;
+
+      const formatted = formatHypotheses(data);
+      currentInvestigation.text.textContent = formatted;
+      updateInvestigationTitle(currentInvestigation, "Hypotheses Generated");
+    }
+
+    function formatTestCommands(testData) {
+      if (!testData || !testData.tests || !Array.isArray(testData.tests)) {
+        return "No test commands generated.";
+      }
+
+      return testData.tests
+        .map((test, idx) => `${idx + 1}. ${test.command || test}\n   Rationale: ${test.rationale || 'Testing'}`)
+        .join("\n\n");
+    }
+
+    function handleTestingHypothesis(data) {
+      if (!currentInvestigation) return;
+
+      const formatted = formatTestCommands(data);
+      currentInvestigation.text.textContent = formatted;
+      updateInvestigationTitle(currentInvestigation, "Testing Hypotheses");
+    }
+
+    function formatCommandOutputs(outputs) {
+      if (!outputs || !Array.isArray(outputs)) {
+        return "No command outputs yet.";
+      }
+
+      return outputs
+        .map((output, idx) => {
+          const cmd = output.command || output;
+          const success = output.success ? "✓ Success" : "✗ Failed";
+          const out = output.output || output;
+          return `${idx + 1}. ${cmd}\n   Status: ${success}\n   Output: ${out}`;
+        })
+        .join("\n\n");
+    }
+
+    function handleCommandOutputs(data) {
+      if (!currentInvestigation) return;
+
+      const formatted = formatCommandOutputs(data);
+      currentInvestigation.text.textContent = formatted;
+      updateInvestigationTitle(currentInvestigation, "Command Results");
+    }
+
+    function formatFacts(factsData) {
+      if (!factsData || !factsData.facts || !Array.isArray(factsData.facts)) {
+        return "No facts discovered.";
+      }
+
+      return factsData.facts
+        .map((fact, idx) => `${idx + 1}. ${fact.fact || fact}`)
+        .join("\n\n");
+    }
+
+    function handleFacts(data) {
+      if (!currentInvestigation) return;
+
+      const formatted = formatFacts(data);
+      currentInvestigation.text.textContent = formatted;
+      updateInvestigationTitle(currentInvestigation, "Facts Discovered");
     }
 
     window.handleInvestigationEvent = function (event) {
@@ -1135,7 +1212,23 @@ if (isChatPage) {
       switch (event.type) {
         case "problem_statement":
           handleProblemStatement(event.data);
-          createInvestigationPlaceholder(title = "Hypothesizing", initialText = '');
+          currentInvestigation = createInvestigationPlaceholder("Hypothesizing", "");
+          break;
+        case "hypotheses":
+          handleHypotheses(event.data);
+          currentInvestigation = createInvestigationPlaceholder("Testing Hypotheses", "");
+          break;
+        case "testing_hypothesis":
+          handleTestingHypothesis(event.data);
+          currentInvestigation = createInvestigationPlaceholder("Executing Tests", "");
+          break;
+        case "command_outputs":
+          handleCommandOutputs(event.data);
+          currentInvestigation = createInvestigationPlaceholder("Analyzing Results", "");
+          break;
+        case "facts":
+          handleFacts(event.data);
+          currentInvestigation = createInvestigationPlaceholder("Generating Solution", "");
           break;
       }
     };
