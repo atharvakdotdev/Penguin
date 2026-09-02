@@ -19,8 +19,15 @@ DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b").strip()
 
 
 class Api:
-    def __init__(self):
+    def __init__(self,windowobj=None):
         self.state = DEFAULT_STATE
+
+        self.problem_statenment=""
+        self.windowobj=windowobj
+
+
+
+
         self.chat_history = []
         self.active_session_id = None
         self.active_process = None
@@ -633,31 +640,31 @@ class Api:
         # Fallback if no response generated
         return {"reply": "I couldn't generate a response.", "steps": []}
 
-    def report_command_output(self, command, output, success):
-        """Prepare the next prompt without mutating the visible chat history."""
-        status = "succeeded" if success else "failed"
-        output_text = str(output or "").strip() or "(no output)"
+#     def report_command_output(self, command, output, success):
+#         """Prepare the next prompt without mutating the visible chat history."""
+#         status = "succeeded" if success else "failed"
+#         output_text = str(output or "").strip() or "(no output)"
 
-        next_prompt = f"""
-The requested command has finished.
+#         next_prompt = f"""
+# The requested command has finished.
 
-Status: {status}
+# Status: {status}
 
-Command:
-{command}
+# Command:
+# {command}
 
-Output:
-{output_text}
+# Output:
+# {output_text}
 
-Do NOT repeat this command .
-Choose the next diagnostic step based on the above output.
-REMEMBER to change the next goal if the command output indicates that the goal has been achieved or is no longer relevant.
-"""
-        return {
-            "status": "reported",
-            "next_prompt": next_prompt,
-            "command_status": status,
-        }
+# Do NOT repeat this command .
+# Choose the next diagnostic step based on the above output.
+# REMEMBER to change the next goal if the command output indicates that the goal has been achieved or is no longer relevant.
+# """
+#         return {
+#             "status": "reported",
+#             "next_prompt": next_prompt,
+#             "command_status": status,
+#         }
 
     def _record_command(self, command, success, output):
         executions = self.investigating_obj.setdefault("executed_commands", [])
@@ -734,3 +741,26 @@ REMEMBER to change the next goal if the command output indicates that the goal h
         except Exception as e:
             self._record_command(command, False, str(e))
             return {"success": False, "output": "", "error": str(e), "return_code": -1}
+
+    def sendEvent(self,data,Data_type):
+        event_obj = {"data": data, "type": Data_type.lower().replace(" ", "_")}
+        self.windowobj.evaluate_js(f"window.handleInvestigationEvent({json.dumps(event_obj)})")
+        print("PROBLEM STATEMENT:", self.problem_statenment)
+        print("TYPE:", type(self.problem_statenment))
+
+    def StartInvetigation(self,user_input,attached_path,attached ):
+
+        self.problem_statenment = self.investigation.generateProblemStatement(
+            user_request=user_input,
+            model_name="qwen2.5-coder:3b"
+        )
+        print(self.problem_statenment,"\n")
+        self.problem_statenment = json.loads(self.problem_statenment)
+
+        self.sendEvent(
+            data=self.problem_statenment,
+            Data_type="Problem_Statement"
+        )
+
+
+        

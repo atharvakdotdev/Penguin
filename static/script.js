@@ -65,10 +65,11 @@ function navigateToPage(pageName, apiMethodName) {
 
 attachKnowledgeBaseDialogHandlers();
 if (isChatPage) {
-(function() {
-const chatInput = document.getElementById('chatInput');
+  (function () {
+    const chatInput = document.getElementById('chatInput');
     const chatMessages = document.getElementById('chatMessages');
     const sendButton = document.getElementById('sendButton');
+
     const attachLogButton = document.getElementById('attachLogButton');
     const logFileInput = document.getElementById('logFileInput');
     const attachmentStatus = document.getElementById('attachmentStatus');
@@ -89,6 +90,7 @@ const chatInput = document.getElementById('chatInput');
     const settingsNav = document.querySelector('[data-role="settings-nav"]');
 
     let currentCommand = null;
+    let currentInvestigation = null;
     let awaitingNextStep = false;
     let pendingContextPrompt = null;
     let sessionsOpen = false;
@@ -867,8 +869,43 @@ const chatInput = document.getElementById('chatInput');
     }
 
     function appendMessage(role, text) {
+      if (role === 'agent') {
+        const existingAgentBlock = chatMessages.querySelector('.message-block.agent-message:last-of-type');
+        if (existingAgentBlock) {
+          const content = existingAgentBlock.querySelector('.message-content');
+          if (!content) {
+            return existingAgentBlock;
+          }
+
+          if (typeof text === 'string') {
+            const trimmed = text.trim();
+            if (trimmed) {
+              const existingText = content.textContent ? content.textContent.trim() : '';
+              content.textContent = existingText ? `${existingText}\n${trimmed}` : trimmed;
+            }
+          } else if (text && typeof text === 'object') {
+            const payload = text.role === 'assistant' || text.role === 'user'
+              ? text.content
+              : text;
+
+            if (typeof payload === 'string') {
+              const trimmed = payload.trim();
+              if (trimmed) {
+                const existingText = content.textContent ? content.textContent.trim() : '';
+                content.textContent = existingText ? `${existingText}\n${trimmed}` : trimmed;
+              }
+            } else if (payload && typeof payload === 'object') {
+              populateAgentContent(content, payload);
+            }
+          }
+
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+          return existingAgentBlock;
+        }
+      }
+
       const wrapper = document.createElement('div');
-      wrapper.className = 'message-block';
+      wrapper.className = `message-block ${role === 'user' ? 'user-message' : 'agent-message'}`;
 
       const header = document.createElement('div');
       header.className = 'message-header';
@@ -994,34 +1031,56 @@ const chatInput = document.getElementById('chatInput');
 
     async function sendMessage() {
       const text = chatInput.value.trim();
+
       if (!text && !pendingAttachment) {
         return;
       }
 
-      const attachedFileName = pendingAttachment ? pendingAttachment.name : null;
-      const userMessage = text || `Attached log: ${attachedFileName || 'selected file'}`;
+      const attachedFileName = pendingAttachment
+        ? pendingAttachment.name
+        : null;
 
+      const userMessage =
+        text || `Attached log: ${attachedFileName || 'selected file'}`;
+
+      // Add user message
       appendMessage('user', userMessage);
+
+      // Create investigation placeholder immediately
+      currentInvestigation = createInvestigationPlaceholder(
+        'Understanding the problem',
+        'Thinking...'
+      );
+
       chatInput.value = '';
       setBusy(true);
-      const agentMessage = appendMessage('agent', 'Thinking...');
 
       try {
-        if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.respond !== 'function') {
+        if (
+          !window.pywebview ||
+          !window.pywebview.api ||
+          typeof window.pywebview.api.StartInvetigation !== 'function'
+        ) {
           throw new Error('The desktop API is not available.');
         }
 
-        const response = await window.pywebview.api.respond(
+        await window.pywebview.api.StartInvetigation(
           userMessage,
           attachedFileName || null,
-          pendingAttachment ? pendingAttachment.text : null,
+          pendingAttachment ? pendingAttachment.text : null
         );
-        await processAgentResponse(agentMessage, response);
-        if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.save_current_session === 'function') {
+
+        if (
+          window.pywebview.api &&
+          typeof window.pywebview.api.save_current_session === 'function'
+        ) {
           await window.pywebview.api.save_current_session();
         }
+
       } catch (error) {
-        agentMessage.querySelector('.message-content').textContent = `Sorry, the agent could not respond: ${error.message || error}`;
+        investigation.text.textContent =
+          `Sorry, the agent could not respond: ${error.message || error}`;
+
       } finally {
         clearPendingAttachment();
         setBusy(false);
@@ -1029,6 +1088,57 @@ const chatInput = document.getElementById('chatInput');
         chatMessages.scrollTop = chatMessages.scrollHeight;
       }
     }
+    function createInvestigationPlaceholder(title, initialText = "Thinking...") {
+      const message = appendMessage("agent", "");
+      const content = message.querySelector(".message-content");
+
+      const details = document.createElement("details");
+      details.className = "investigation-dropdown";
+      details.open = true;
+
+      const summary = document.createElement("summary");
+      summary.textContent = title;
+
+      const text = document.createElement("div");
+      text.className = "investigation-content";
+      text.textContent = initialText;
+
+      details.append(summary, text);
+      content.appendChild(details);
+
+      return {
+        message,
+        details,
+        summary,
+        text
+      };
+    }
+
+    function updateInvestigationTitle(investigation, newTitle) {
+      if (!investigation || !investigation.summary) return;
+      investigation.summary.textContent = newTitle;
+      investigation.summary.classList.add('identified');
+    }
+
+    function handleProblemStatement(data) {
+      if (!currentInvestigation) return;
+
+      currentInvestigation.text.textContent = data.problem_statement;
+      updateInvestigationTitle(currentInvestigation, "Problem Identified");
+    }
+
+    window.handleInvestigationEvent = function (event) {
+      console.log("Investigation event:", event);
+
+      if (!event?.type) return;
+
+      switch (event.type) {
+        case "problem_statement":
+          handleProblemStatement(event.data);
+          createInvestigationPlaceholder(title = "Hypothesizing", initialText = '');
+          break;
+      }
+    };
 
     if (attachLogButton) {
       attachLogButton.addEventListener('click', pickLogFile);
@@ -1156,11 +1266,11 @@ const chatInput = document.getElementById('chatInput');
         }
       });
     });
-})();
+  })();
 }
 if (isSettingsPage) {
-(function() {
-const sidebar = document.querySelector('.sidebar');
+  (function () {
+    const sidebar = document.querySelector('.sidebar');
     const sidebarToggle = document.getElementById('sidebarToggle');
     const defaultModelSelect = document.getElementById('defaultModelSelect');
     const modeButtons = Array.from(document.querySelectorAll('.mode-option'));
@@ -1301,5 +1411,5 @@ const sidebar = document.querySelector('.sidebar');
 
     window.addEventListener('load', loadAvailableModels);
     setTimeout(loadAvailableModels, 100);
-})();
+  })();
 }

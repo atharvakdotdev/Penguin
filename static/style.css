@@ -651,6 +651,115 @@
       font-size: 0.95rem;
     }
 
+    .investigation-dropdown {
+      /* margin-top: 12px; */
+      /* border: 1px solid rgba(88, 166, 255, 0.28); */
+      /* border-radius: 12px; */
+      position: relative;
+      overflow: visible;
+      /* background: rgba(13, 17, 23, 0.72); */
+      /* box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18); */
+      margin-left: 0px;
+      padding-left: 0px;
+    }
+
+    .investigation-dropdown + .investigation-dropdown {
+      margin-top: 10px;
+      padding-top: 10px;
+      position: relative;
+    }
+
+    .investigation-dropdown + .investigation-dropdown::before {
+      content: "";
+      position: absolute;
+      left: 5px;
+      top: -12px;
+      width: 1px;
+      height: 12px;
+      background: rgba(148, 163, 184, 0.4);
+    }
+
+    .investigation-dropdown summary {
+      list-style: none;
+      cursor: pointer;
+      display: block;
+      padding: 8px 10px 0 20px;
+      font-size: 0.7rem;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      user-select: none;
+      position: relative;
+      background: linear-gradient(
+        90deg,
+        rgba(201, 209, 217, 0.8) 0%,
+        rgba(255, 255, 255, 0.98) 35%,
+        rgba(201, 209, 217, 0.8) 70%,
+        rgba(139, 148, 158, 0.7) 100%
+      );
+      background-size: 220% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: investigationWave 3s ease-in-out infinite;
+      transition: filter 0.2s ease, transform 0.2s ease;
+    }
+
+    .investigation-dropdown summary:hover {
+      filter: brightness(1.15);
+      transform: translateY(-1px);
+    }
+
+    .investigation-dropdown summary.identified {
+      animation: none;
+      color: var(--text-dim);
+      background: none;
+    }
+
+    .investigation-dropdown summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .investigation-dropdown summary::after {
+      content: "";
+      display: none;
+    }
+
+    .investigation-dropdown[open] summary::after {
+      transform: none;
+    }
+
+    .investigation-content {
+      padding: 8px 10px 10px 25px;
+      color: var(--text-main);
+      line-height: 1.6;
+      font-size: 0.82rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    @keyframes investigationWave {
+      0%,
+      100% {
+        transform: translateY(0);
+        opacity: 0.78;
+      }
+      50% {
+        transform: translateY(-1px);
+        opacity: 1;
+      }
+    }
+
+    @keyframes investigationShimmer {
+      0% {
+        transform: translateX(-120%);
+      }
+      100% {
+        transform: translateX(120%);
+      }
+    }
+
     /* Diagnostic Cards */
     .card-list {
       display: flex;
