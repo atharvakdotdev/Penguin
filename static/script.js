@@ -97,6 +97,7 @@ if (isChatPage) {
     let autoAllowEnabled = false;
     let activeSessionId = null;
     let chat_history = [];
+    const displayedTerminalOutputs = new Set();
     window.chat_history = chat_history;
 
     function formatTime() {
@@ -149,6 +150,7 @@ if (isChatPage) {
 
     function clearTerminalView() {
       terminalWindow.innerHTML = '';
+      displayedTerminalOutputs.clear();
     }
 
     function isControllerPrompt(text) {
@@ -230,6 +232,110 @@ if (isChatPage) {
           step.classList.remove('done', 'active');
           if (lastSvg) lastSvg.outerHTML = circleSvg;
         }
+      });
+    }
+
+    function getHypothesisIconMarkup(status) {
+      const normalizedStatus = String(status || 'untested').trim().toLowerCase();
+
+      if (normalizedStatus === 'testing') {
+        return `
+          <svg class="status-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="Testing">
+            <circle cx="12" cy="12" r="8" stroke="currentColor" stroke-opacity="0.35" fill="none"></circle>
+            <path d="M12 4a8 8 0 0 1 8 8"></path>
+          </svg>
+        `;
+      }
+
+      if (normalizedStatus === 'supported') {
+        return `
+          <svg viewBox="0 0 24 24" fill="currentColor" style="color: var(--accent-green);" aria-label="Supported">
+            <circle cx="12" cy="12" opacity="0.2" r="10"></circle>
+            <path d="m9 12 2 2 4-4" fill="none" stroke="currentColor" stroke-width="2"></path>
+          </svg>
+        `;
+      }
+
+      if (normalizedStatus === 'rejected') {
+        return `
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="Rejected">
+            <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity="0.25" fill="none"></circle>
+            <path d="M8.5 8.5 15.5 15.5"></path>
+            <path d="M15.5 8.5 8.5 15.5"></path>
+          </svg>
+        `;
+      }
+
+      if (normalizedStatus === 'uncertain') {
+        return `
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="Uncertain">
+            <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity="0.25" fill="none"></circle>
+            <path d="M9.5 9.5a2.5 2.5 0 1 1 4.2 1.8c-.9.8-1.7 1.2-1.7 2.7"></path>
+            <circle cx="12" cy="16.5" r="0.9" fill="currentColor" stroke="none"></circle>
+          </svg>
+        `;
+      }
+
+      return `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" aria-label="Untested">
+          <circle cx="12" cy="12" r="10"></circle>
+        </svg>
+      `;
+    }
+
+    function renderHypotheses(hypotheses) {
+      const hypothesisList = document.getElementById('hypothesisList');
+      if (!hypothesisList) {
+        return;
+      }
+
+      const list = Array.isArray(hypotheses)
+        ? hypotheses
+        : (hypotheses && Array.isArray(hypotheses.hypotheses) ? hypotheses.hypotheses : []);
+
+      hypothesisList.innerHTML = '';
+
+      if (!list.length) {
+        const emptyRow = document.createElement('div');
+        emptyRow.className = 'hypothesis-empty';
+        emptyRow.textContent = 'No active hypotheses.';
+        hypothesisList.appendChild(emptyRow);
+        return;
+      }
+
+      list.forEach((entry, index) => {
+        const hypothesisText = entry && typeof entry.hypothesis === 'string'
+          ? entry.hypothesis
+          : (typeof entry === 'string' ? entry : 'Unknown hypothesis');
+
+        const status = entry && typeof entry.status === 'string'
+          ? entry.status.toLowerCase()
+          : 'untested';
+
+        const item = document.createElement('div');
+        item.className = `plan-item${status === 'testing' ? ' active' : ''}${status === 'supported' ? ' done' : ''}`;
+        item.dataset.status = status;
+
+        const leftIcon = document.createElement('div');
+        leftIcon.innerHTML = `
+          <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path>
+          </svg>
+        `;
+
+        const text = document.createElement('span');
+        text.className = 'hypothesis-text';
+        text.textContent = `${index + 1}. ${hypothesisText}`;
+        item.dataset.hypothesis = hypothesisText;
+
+        const statusWrap = document.createElement('div');
+        statusWrap.className = 'status-indicator';
+        statusWrap.innerHTML = getHypothesisIconMarkup(status);
+
+        item.appendChild(leftIcon.firstElementChild);
+        item.appendChild(text);
+        item.appendChild(statusWrap);
+        hypothesisList.appendChild(item);
       });
     }
 
@@ -462,6 +568,12 @@ if (isChatPage) {
     }
 
     function addTerminalOutput(command, output, isError = false) {
+      const outputKey = JSON.stringify([command, output, isError]);
+      if (displayedTerminalOutputs.has(outputKey)) {
+        return;
+      }
+      displayedTerminalOutputs.add(outputKey);
+
       const cmdDiv = document.createElement('div');
       cmdDiv.className = 'terminal-cmd';
       cmdDiv.textContent = `$ ${command}`;
@@ -514,15 +626,17 @@ if (isChatPage) {
           let autoTriggered = false;
           response.steps.forEach((step) => {
             const card = document.createElement('div');
-            card.className = 'card';
+            card.className = step.command ? 'command-step' : 'card';
             const title = document.createElement('div');
             title.className = 'card-header gathering';
             title.textContent = step.title || 'Step';
             const description = document.createElement('div');
             description.className = 'card-body';
             description.textContent = step.description || '';
-            card.appendChild(title);
-            card.appendChild(description);
+            if (!step.command) {
+              card.appendChild(title);
+              card.appendChild(description);
+            }
 
             if (step.command) {
               const commandWrapper = document.createElement('div');
@@ -818,6 +932,7 @@ if (isChatPage) {
     }
 
     async function executeCommand(button, command, useSudo) {
+      let commandCompleted = false;
       try {
         button.disabled = true;
         const toggleSibling = button.closest('.split-btn-container')?.querySelector('.split-toggle');
@@ -831,26 +946,22 @@ if (isChatPage) {
           throw new Error('The desktop API is not available.');
         }
 
-        const runApiCommand = window.pywebview.api.run_command;
+        const runApiCommand = window.pywebview.api.run_command_flag;
         if (typeof runApiCommand !== 'function') {
           throw new Error('The desktop API is not available.');
         }
 
         const result = await runApiCommand(command, useSudo);
-        const outputText = (result.output || result.error || '').trim() || (result.success ? '(Command executed)' : 'Command failed');
-
-        if (result.success) {
-          addTerminalOutput(command, outputText);
-          button.style.borderColor = 'var(--accent-green)';
-          button.textContent = '✓ Success';
-        } else {
-          addTerminalOutput(command, outputText, true);
-          button.style.borderColor = '#f85149';
-          button.textContent = '✗ Failed';
+  commandCompleted = true;
+        if (result && typeof result === 'object') {
+          if (result.success) {
+            button.style.borderColor = 'var(--accent-green)';
+            button.textContent = '✓ Ran';
+          } else {
+            button.style.borderColor = '#f85149';
+            button.textContent = '✗ Failed';
+          }
         }
-
-        const report = await window.pywebview.api.report_command_output(command, outputText, result.success);
-        pendingContextPrompt = report.next_prompt || null;
 
         button.disabled = true;
         if (toggleSibling) {
@@ -859,12 +970,26 @@ if (isChatPage) {
         awaitingNextStep = true;
 
         // Proceed to next step which will call respond and handle is_continue
-        setTimeout(() => proceedToNextStep(), 1000);
+        // setTimeout(() => proceedToNextStep(), 1000);
       } catch (error) {
         addTerminalOutput(command, `Error: ${error.message || error}`, true);
         button.style.borderColor = '#f85149';
         button.textContent = '✗ Error';
         button.disabled = true;
+      } finally {
+        if (commandCompleted) {
+          const commandStep = button.closest('.command-step');
+          const investigationDropdown = commandStep?.closest('.investigation-dropdown');
+          commandStep?.remove();
+
+          if (investigationDropdown && investigationDropdown.dataset.pendingCommands) {
+            const remainingCommands = Number(investigationDropdown.dataset.pendingCommands) - 1;
+            investigationDropdown.dataset.pendingCommands = String(Math.max(remainingCommands, 0));
+            if (remainingCommands <= 0) {
+              investigationDropdown.hidden = true;
+            }
+          }
+        }
       }
     }
 
@@ -1138,10 +1263,11 @@ if (isChatPage) {
     }
 
     function handleHypotheses(data) {
+      renderHypotheses(data && Array.isArray(data.hypotheses) ? data.hypotheses : data);
+
       if (!currentInvestigation) return;
 
-      const formatted = formatHypotheses(data);
-      currentInvestigation.text.textContent = formatted;
+      currentInvestigation.text.textContent = '';
       updateInvestigationTitle(currentInvestigation, "Hypotheses Generated");
     }
 
@@ -1158,9 +1284,63 @@ if (isChatPage) {
     function handleTestingHypothesis(data) {
       if (!currentInvestigation) return;
 
-      const formatted = formatTestCommands(data);
-      currentInvestigation.text.textContent = formatted;
+      const testingHypothesis = data && typeof data.hypothesis === 'object'
+        ? data.hypothesis.hypothesis
+        : (data && typeof data.hypothesis === 'string' ? data.hypothesis : '');
+      document.querySelectorAll('#hypothesisList .plan-item').forEach((item) => {
+        const isTesting = Boolean(testingHypothesis) && item.dataset.hypothesis === testingHypothesis;
+        item.classList.toggle('active', isTesting);
+        const statusIndicator = item.querySelector('.status-indicator');
+        if (isTesting) {
+          item.dataset.status = 'testing';
+          if (statusIndicator) {
+            statusIndicator.innerHTML = getHypothesisIconMarkup('testing');
+          }
+        } else if (item.dataset.status === 'testing') {
+          item.dataset.status = 'untested';
+          if (statusIndicator) {
+            statusIndicator.innerHTML = getHypothesisIconMarkup('untested');
+          }
+        }
+      });
+
+      const tests = data && Array.isArray(data.tests) ? data.tests : [];
+      if (tests.length) {
+        const response = {
+          steps: tests.map((test, index) => ({
+            title: `Test ${index + 1}`,
+            description: test && typeof test.rationale === 'string' ? test.rationale : 'Testing the current hypothesis.',
+            command: test && typeof test.command === 'string' ? test.command : ''
+          }))
+        };
+        currentInvestigation.text.innerHTML = '';
+          currentInvestigation.details.dataset.pendingCommands = String(
+            response.steps.filter((step) => step.command).length
+          );
+        populateAgentContent(currentInvestigation.text, response);
+      } else {
+        currentInvestigation.text.textContent = 'No test commands generated.';
+      }
       updateInvestigationTitle(currentInvestigation, "Testing Hypotheses");
+    }
+
+    function handleHypothesisTested(data) {
+      const testedHypothesis = data && typeof data.hypothesis === 'object'
+        ? data.hypothesis.hypothesis
+        : (data && typeof data.hypothesis === 'string' ? data.hypothesis : '');
+      if (!testedHypothesis) return;
+
+      document.querySelectorAll('#hypothesisList .plan-item').forEach((item) => {
+        if (item.dataset.hypothesis !== testedHypothesis) return;
+
+        item.classList.remove('active');
+        item.classList.add('done');
+        item.dataset.status = 'tested';
+        const statusIndicator = item.querySelector('.status-indicator');
+        if (statusIndicator) {
+          statusIndicator.innerHTML = getHypothesisIconMarkup('supported');
+        }
+      });
     }
 
     function formatCommandOutputs(outputs) {
@@ -1179,11 +1359,21 @@ if (isChatPage) {
     }
 
     function handleCommandOutputs(data) {
-      if (!currentInvestigation) return;
+      if (Array.isArray(data)) {
+        data.forEach((entry) => {
+          if (!entry || typeof entry.command !== 'string') {
+            return;
+          }
 
-      const formatted = formatCommandOutputs(data);
-      currentInvestigation.text.textContent = formatted;
-      updateInvestigationTitle(currentInvestigation, "Command Results");
+          const outputText = (entry.output || entry.error || '').trim() || (entry.success ? '(Command executed)' : 'Command failed');
+          addTerminalOutput(entry.command, outputText, entry.success === false);
+        });
+      }
+
+      // Keep command output in the terminal only. Do not render command results as chat placeholders.
+      if (currentInvestigation) {
+        currentInvestigation.text.textContent = '';
+      }
     }
 
     function formatFacts(factsData) {
@@ -1222,9 +1412,11 @@ if (isChatPage) {
           handleTestingHypothesis(event.data);
           currentInvestigation = createInvestigationPlaceholder("Executing Tests", "");
           break;
+        case "hypothesis_tested":
+          handleHypothesisTested(event.data);
+          break;
         case "command_outputs":
           handleCommandOutputs(event.data);
-          currentInvestigation = createInvestigationPlaceholder("Analyzing Results", "");
           break;
         case "facts":
           handleFacts(event.data);

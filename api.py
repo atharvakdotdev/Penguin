@@ -5,6 +5,7 @@ import json
 import os
 import queue
 import subprocess
+import threading
 import webview
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,7 +22,7 @@ DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b").strip()
 class Api:
     def __init__(self,windowobj=None):
         self.state = DEFAULT_STATE
-
+        self.user_approved = threading.Event()
         self.problem_statenment=""
         self.windowobj=windowobj
         self.hypotheses =[]
@@ -463,14 +464,6 @@ class Api:
                 self._merge_investigation_update(update)
             # self._apply_controller_transitions(parsed)
             command = parsed.get("command")
-            if decision == "run_command" and isinstance(command, str):
-                if not self._should_run_command(command):
-                    return {
-                        "reply": "This command has already been executed. Choose a different diagnostic action.",
-                        "decision": decision,
-                        "steps": [],
-                        "investigation_update": {},
-                    }
             return {
                 "reply": parsed.get("reply", cleaned),
                 "decision": self.state,
@@ -665,7 +658,14 @@ class Api:
 #             "next_prompt": next_prompt,
 #             "command_status": status,
 #         }
+    def run_command_flag(self, command, use_sudo=False):
+        """Approve the command and execute it through the real runner."""
+        if not isinstance(command, str) or not command.strip():
+            return {"success": False, "output": "", "error": "No command supplied", "return_code": -1}
 
+        self.user_approved.clear()
+        self.user_approved.set()
+        return self.run_command(command, use_sudo=use_sudo)
     def _record_command(self, command, success, output):
         executions = self.investigating_obj.setdefault("executed_commands", [])
         execution = {
@@ -707,9 +707,9 @@ class Api:
         return not (last_entry_for_session.get("command") == command)
 
     def run_command(self, command, use_sudo=False):
-        """Execute a shell command unless the same command was just run in the immediately previous step."""
-        if not self._should_run_command(command):
-            return {"success": False, "output": "", "error": "Command already executed consecutively", "return_code": -1}
+        """Execute a shell command after explicit approval and emit output through the event stream."""
+        if not self.auto_allow:
+            self.user_approved.wait()
 
         try:
             if use_sudo:
@@ -724,6 +724,20 @@ class Api:
             )
             output = result.stdout or result.stderr or ""
             self._record_command(command, result.returncode == 0, output)
+
+            output_payload = {
+                "command": command,
+                "success": result.returncode == 0,
+                "output": result.stdout or "",
+                "error": result.stderr or "",
+                "return_code": result.returncode,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "session_id": self.active_session_id,
+            }
+
+            if self.windowobj is not None:
+                self.sendEvent([output_payload], "command_outputs")
+
             return {
                 "success": result.returncode == 0,
                 "output": output,
@@ -732,21 +746,47 @@ class Api:
             }
         except subprocess.TimeoutExpired:
             self._record_command(command, False, "Command timed out after 30 seconds")
+            error = "Command timed out after 30 seconds"
+            if self.windowobj is not None:
+                self.sendEvent([
+                    {
+                        "command": command,
+                        "success": False,
+                        "output": "",
+                        "error": error,
+                        "return_code": -1,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "session_id": self.active_session_id,
+                    }
+                ], "command_outputs")
             return {
                 "success": False,
                 "output": "",
-                "error": "Command timed out after 30 seconds",
+                "error": error,
                 "return_code": -1,
             }
         except Exception as e:
             self._record_command(command, False, str(e))
-            return {"success": False, "output": "", "error": str(e), "return_code": -1}
+            error = str(e)
+            if self.windowobj is not None:
+                self.sendEvent([
+                    {
+                        "command": command,
+                        "success": False,
+                        "output": "",
+                        "error": error,
+                        "return_code": -1,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "session_id": self.active_session_id,
+                    }
+                ], "command_outputs")
+            return {"success": False, "output": "", "error": error, "return_code": -1}
+        finally:
+            self.user_approved.clear()
 
     def sendEvent(self,data,Data_type):
         event_obj = {"data": data, "type": Data_type.lower().replace(" ", "_")}
         self.windowobj.evaluate_js(f"window.handleInvestigationEvent({json.dumps(event_obj)})")
-        print("PROBLEM STATEMENT:", self.problem_statenment)
-        print("TYPE:", type(self.problem_statenment))
 
     def dignosisloop(self):
         self.hypotheses = self.investigation.generateHypothesis(user_request=self.problem_statenment,model_name="qwen2.5-coder:3b")
@@ -768,9 +808,12 @@ class Api:
                 model_name="qwen2.5-coder:3b"
             )
             self.sendEvent(
-                                data=self.Testcommands,
+                                data={
+                                    "hypothesis": hypothesis,
+                                    "tests": self.Testcommands.get("tests", []),
+                                },
                                 Data_type="testing_hypothesis"
-                            )
+                             )
 
             print(self.Testcommands)
             # input("Press Enter to execute the tests...")
@@ -783,6 +826,11 @@ class Api:
                     data=self.command_outputs,
                     Data_type="command_outputs"
                 )
+
+            self.sendEvent(
+                data={"hypothesis": hypothesis},
+                Data_type="hypothesis_tested"
+            )
 
         # Only runs after ALL commands from ALL hypotheses have finished
         self.facts = self.investigation.generateFacts(
