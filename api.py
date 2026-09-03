@@ -67,7 +67,7 @@ class Api:
         self.investigation = InvestigationState()
         self.investigating_obj = self.investigation.new_investigation()
         self.continue_event = False
-        self.auto_allow = False
+        self.auto_allow = self.permission_mode == "auto_confirm"
         self.active_session_id = None
 
     @staticmethod
@@ -266,7 +266,7 @@ class Api:
                 "chatHistory": [],
                 "investigation": {},
                 "isContinue": False,
-                "auto_allow": False,
+                "auto_allow": self.permission_mode == "auto_confirm",
                 "model": self.default_model,
             }
         )
@@ -274,12 +274,13 @@ class Api:
         self.current_chat_model = self.default_model
         self.chat_started = False
         self.active_session_id = created["id"]
+        self.auto_allow = self.permission_mode == "auto_confirm"
         return {
             "status": "created",
             "session_id": self.active_session_id,
             "id": self.active_session_id,
             "title": created["title"],
-            "auto_allow": False,
+            "auto_allow": self.auto_allow,
             "current_chat_model": self.current_chat_model,
             "default_model": self.default_model,
             "chat_started": self.chat_started,
@@ -336,6 +337,7 @@ class Api:
             "default_model": self.default_model,
             "current_chat_model": self.current_chat_model,
             "chat_started": self.chat_started,
+            "auto_allow": self.auto_allow,
             "permission_mode": "auto_confirm" if self.auto_allow else "ask_before_running",
         }
 
@@ -353,6 +355,7 @@ class Api:
                     self.save_current_session()
 
         permission_mode = permission_mode if permission_mode == "auto_confirm" else "ask_before_running"
+        self.permission_mode = permission_mode
         self.session_manager.save_setting("permission_mode", permission_mode)
         self.auto_allow = permission_mode == "auto_confirm"
         if self.active_session_id is not None:
@@ -811,6 +814,7 @@ class Api:
                                 data={
                                     "hypothesis": hypothesis,
                                     "tests": self.Testcommands.get("tests", []),
+                                    "auto_allow": self.auto_allow,
                                 },
                                 Data_type="testing_hypothesis"
                              )

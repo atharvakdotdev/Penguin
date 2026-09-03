@@ -525,6 +525,7 @@ if (isChatPage) {
             modelSelect.disabled = false;
             modelSelect.classList.remove('locked');
           }
+          updateAutoAllowUI(Boolean(settings && settings.auto_allow));
         }
       } catch (error) {
         modelSelect.innerHTML = '<option>No models found</option>';
@@ -719,29 +720,7 @@ if (isChatPage) {
                 actionsRow1.appendChild(copyBtn1);
                 commandWrapper.appendChild(actionsRow1);
               } else if (autoAllowEnabled) {
-                const actionsRow2 = document.createElement('div');
-                actionsRow2.className = 'command-actions-row';
-
-                const autoBadge = document.createElement('div');
-                autoBadge.className = 'auto-allowed-badge';
-                autoBadge.textContent = 'Executed Automatically';
-                actionsRow2.appendChild(autoBadge);
-
-                const copyBtn2 = document.createElement('button');
-                copyBtn2.className = 'copy-command-btn';
-                copyBtn2.setAttribute('title', 'Copy command');
-                copyBtn2.innerHTML = `<svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
-                copyBtn2.addEventListener('click', () => {
-                  navigator.clipboard.writeText(step.command).then(() => {
-                    copyBtn2.innerHTML = `<svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>`;
-                    setTimeout(() => {
-                      copyBtn2.innerHTML = `<svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
-                    }, 1500);
-                  });
-                });
-                actionsRow2.appendChild(copyBtn2);
-                commandWrapper.appendChild(actionsRow2);
-
+                card.hidden = true;
                 if (!autoTriggered) {
                   autoTriggered = true;
                   const virtualBtn = document.createElement('button');
@@ -1284,6 +1263,10 @@ if (isChatPage) {
     function handleTestingHypothesis(data) {
       if (!currentInvestigation) return;
 
+      if (data && data.auto_allow !== undefined) {
+        updateAutoAllowUI(data.auto_allow);
+      }
+
       const testingHypothesis = data && typeof data.hypothesis === 'object'
         ? data.hypothesis.hypothesis
         : (data && typeof data.hypothesis === 'string' ? data.hypothesis : '');
@@ -1317,7 +1300,11 @@ if (isChatPage) {
           currentInvestigation.details.dataset.pendingCommands = String(
             response.steps.filter((step) => step.command).length
           );
-        populateAgentContent(currentInvestigation.text, response);
+        if (autoAllowEnabled) {
+          currentInvestigation.text.textContent = 'Running diagnostic tests...';
+        } else {
+          populateAgentContent(currentInvestigation.text, response);
+        }
       } else {
         currentInvestigation.text.textContent = 'No test commands generated.';
       }
@@ -1410,7 +1397,12 @@ if (isChatPage) {
           break;
         case "testing_hypothesis":
           handleTestingHypothesis(event.data);
-          currentInvestigation = createInvestigationPlaceholder("Executing Tests", "");
+          if (autoAllowEnabled) {
+            currentInvestigation?.details?.remove();
+            currentInvestigation = null;
+          } else {
+            currentInvestigation = createInvestigationPlaceholder("Executing Tests", "");
+          }
           break;
         case "hypothesis_tested":
           handleHypothesisTested(event.data);
