@@ -29,6 +29,10 @@ class Api:
         self.Testcommands = [] # commands to test hypothesis 
         self.facts=[]
         self.command_outputs=[]
+        self.verification=[]
+        self.evaluation =[]
+        self.contradistion_bool = False
+        self.solution=[]
         self.chat_history = []
         self.active_session_id = None
         self.active_process = None
@@ -437,7 +441,6 @@ class Api:
         # kept for backward compatibility; delegate to InvestigationState
         self.state , self.continue_event = self.investigation.transition_state(decision, self.state)
 
-
     def parse_response(self, content):
         if not content:
             return {"reply": "I couldn't generate a response.", "steps": []}
@@ -790,6 +793,57 @@ class Api:
     def sendEvent(self,data,Data_type):
         event_obj = {"data": data, "type": Data_type.lower().replace(" ", "_")}
         self.windowobj.evaluate_js(f"window.handleInvestigationEvent({json.dumps(event_obj)})")
+    def solverloop(self, command_outputs, facts, hypothesis):
+        self.solution = self.investigation.generateSolution(
+            problem_statement=self.problem_statenment,
+            facts=facts,
+            model_name="qwen3:4b",
+            relevant_command_outputs=command_outputs,hypothesis=hypothesis
+        )
+        self.sendEvent(
+            data=self.solution,
+            Data_type="solution"
+        )
+        print("Solution:")
+        print(self.solution)
+        # input("Press Enter to execute the tests...")
+
+        result = self.run_command(self.solution["step"]["command"])
+        print("result")
+        print(result)
+        if result["return_code"] == 0:
+            print("Solution executed successfully.")
+            self.verification = self.investigation.verifiRemediation(
+            problem_statement=self.problem_statenment,
+            # facts=facts,
+            model_name="qwen3:4b"
+            )
+
+            verification_result = self.run_command(
+                self.verification["step"]["command"]
+            )
+
+            self.evaluation = self.investigation.verifiRemediation(
+                problem_statement=self.problem_statenment,
+                command_output=verification_result,
+                model_name="qwen3:4b"
+            )
+            if self.evaluation["solved"]:
+                print("The issue has been resolved.")
+            else:   
+                self.solverloop(command_outputs=result,facts=self.facts,hypothesis=hypothesis)
+
+        else :
+            self.contradistion_bool= self.investigation.CheckHypothesisContradiction(
+                model_name="qwen3:4b",
+                command_outputs=result,
+                hypothesis=hypothesis
+            )
+            if self.contradistion_bool["contradicts"]:
+                print("The hypothesis is contradicted by the command output. Re-running the diagnosis loop.")
+                self.dignosisloop()
+            else:
+                self.solverloop(command_outputs=result,facts=facts,hypothesis=hypothesis)
 
     def dignosisloop(self):
         self.hypotheses = self.investigation.generateHypothesis(user_request=self.problem_statenment,model_name="qwen2.5-coder:3b")

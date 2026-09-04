@@ -931,7 +931,7 @@ if (isChatPage) {
         }
 
         const result = await runApiCommand(command, useSudo);
-  commandCompleted = true;
+        commandCompleted = true;
         if (result && typeof result === 'object') {
           if (result.success) {
             button.style.borderColor = 'var(--accent-green)';
@@ -1183,7 +1183,7 @@ if (isChatPage) {
 
       } catch (error) {
         investigation.text.textContent =
-          `Sorry, the agent could not respond: ${error.message || error}`;
+            `Sorry, the agent could not respond: ${error.message || error}`;
 
       } finally {
         clearPendingAttachment();
@@ -1363,6 +1363,58 @@ if (isChatPage) {
       }
     }
 
+    function formatSolution(solutionData) {
+      if (!solutionData) {
+        return 'No solution generated.';
+      }
+
+      if (typeof solutionData === 'string') {
+        return solutionData;
+      }
+
+      const solutionStep = solutionData.step || {};
+      const command = typeof solutionStep.command === 'string' ? solutionStep.command : '';
+      const rationale = typeof solutionStep.rationale === 'string'
+        ? solutionStep.rationale
+        : (typeof solutionStep.reason === 'string' ? solutionStep.reason : '');
+      const summary = typeof solutionData.summary === 'string'
+        ? solutionData.summary
+        : (typeof solutionData.explanation === 'string' ? solutionData.explanation : '');
+
+      return [summary, command ? `Command: ${command}` : '', rationale ? `Reason: ${rationale}` : '']
+        .filter(Boolean)
+        .join('\n\n');
+    }
+
+    function handleSolution(data) {
+      if (!currentInvestigation) return;
+
+      const step = data && typeof data === 'object' && data.step ? data.step : {};
+      const command = typeof step.command === 'string' ? step.command : '';
+
+      if (command) {
+        const response = {
+          steps: [{
+            title: 'Proposed Solution',
+            description: typeof step.rationale === 'string'
+              ? step.rationale
+              : (typeof step.reason === 'string' ? step.reason : 'Review and approve the recommended remediation command.'),
+            command,
+            requires_sudo: Boolean(step.requires_sudo || data?.requires_sudo),
+          }]
+        };
+
+        currentInvestigation.text.innerHTML = '';
+        currentInvestigation.details.dataset.pendingCommands = '1';
+        populateAgentContent(currentInvestigation.text, response);
+        updateInvestigationTitle(currentInvestigation, 'Review Solution');
+        return;
+      }
+
+      currentInvestigation.text.textContent = formatSolution(data);
+      updateInvestigationTitle(currentInvestigation, 'Proposed Solution');
+    }
+
     function formatFacts(factsData) {
       if (!factsData || !factsData.facts || !Array.isArray(factsData.facts)) {
         return "No facts discovered.";
@@ -1387,16 +1439,29 @@ if (isChatPage) {
       if (!event?.type) return;
 
       switch (event.type) {
+        case "investigation_started":
+          if (currentInvestigation) {
+            currentInvestigation.text.textContent = event.data?.message || 'Understanding the problem...';
+          }
+          break;
         case "problem_statement":
           handleProblemStatement(event.data);
           currentInvestigation = createInvestigationPlaceholder("Hypothesizing", "");
+          break;
+        case "hypotheses_started":
+          if (currentInvestigation) {
+            currentInvestigation.text.textContent = event.data?.message || 'Generating hypotheses...';
+          }
           break;
         case "hypotheses":
           handleHypotheses(event.data);
           currentInvestigation = createInvestigationPlaceholder("Testing Hypotheses", "");
           break;
         case "testing_hypothesis":
-          handleTestingHypothesis(event.data);
+          handleTestingHypothesis({
+            ...(event.data || {}),
+            _history_event_id: event.event_id,
+          });
           if (autoAllowEnabled) {
             currentInvestigation?.details?.remove();
             currentInvestigation = null;
@@ -1410,9 +1475,25 @@ if (isChatPage) {
         case "command_outputs":
           handleCommandOutputs(event.data);
           break;
+        case "solution":
+          handleSolution({
+            ...(event.data || {}),
+            _history_event_id: event.event_id,
+            _history_command_id: event.data?.step?.command_id || null,
+          });
+          break;
         case "facts":
           handleFacts(event.data);
           currentInvestigation = createInvestigationPlaceholder("Generating Solution", "");
+          break;
+        case "investigation_error":
+          if (currentInvestigation) {
+            currentInvestigation.text.textContent = `Investigation failed: ${event.data?.message || 'Unknown error'}`;
+            updateInvestigationTitle(currentInvestigation, "Investigation Failed");
+          }
+          break;
+        case "investigation_complete":
+          renderSessionList();
           break;
       }
     };
@@ -1532,7 +1613,7 @@ if (isChatPage) {
       }
     });
 
-    renderSessionList();
+    restoreCurrentSession();
     window.addEventListener('load', loadAvailableModels);
     setTimeout(loadAvailableModels, 100);
 
