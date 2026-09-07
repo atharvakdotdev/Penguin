@@ -37,6 +37,7 @@ class Api:
         self.contradistion_bool = False
         self.solution=[]
         self.chat_history = []
+        self.runtime_state = {}
         self.active_session_id = None
         self.active_process = None
         self.investigation = InvestigationState()
@@ -71,11 +72,120 @@ class Api:
     def _reset_runtime_state(self):
         self.state = DEFAULT_STATE
         self.chat_history = []
+        self.runtime_state = {}
         self.investigation = InvestigationState()
         self.investigating_obj = self.investigation.new_investigation()
         self.continue_event = False
         self.auto_allow = self.permission_mode == "auto_confirm"
         self.active_session_id = None
+
+    def _runtime_snapshot(self):
+        return {
+            "state": self.state,
+            "user_approved": bool(self.user_approved.is_set()),
+            "problem_statenment": self.problem_statenment,
+            "hypotheses": self.hypotheses,
+            "result": self.result,
+            "hypothesis": self.hypothesis,
+            "Testcommands": self.Testcommands,
+            "facts": self.facts,
+            "command_outputs": self.command_outputs,
+            "verification": self.verification,
+            "evaluation": self.evaluation,
+            "contradistion_bool": self.contradistion_bool,
+            "solution": self.solution,
+            "chat_history": self.chat_history,
+            "continue_event": self.continue_event,
+            "auto_allow": self.auto_allow,
+            "chat_started": self.chat_started,
+            "current_chat_model": self.current_chat_model,
+            "default_model": self.default_model,
+            "permission_mode": self.permission_mode,
+        }
+
+    def save_current_session(self, title=None):
+        snapshot = {
+            "id": self.active_session_id,
+            "title": title or "New Chat",
+            "created": datetime.now(timezone.utc).isoformat(),
+            "modified": datetime.now(timezone.utc).isoformat(),
+            "chatHistory": copy.deepcopy(self.chat_history),
+            "investigation": copy.deepcopy(self.investigating_obj),
+            "isContinue": bool(self.continue_event),
+            "auto_allow": bool(self.auto_allow),
+            "model": self.current_chat_model or self.default_model,
+            "runtime_state": self._runtime_snapshot(),
+        }
+
+        if self.active_session_id is None:
+            saved = self.session_manager.create_session(snapshot)
+            self.active_session_id = saved["id"]
+        else:
+            snapshot["id"] = self.active_session_id
+            saved = self.session_manager.save_session(snapshot)
+            self.active_session_id = saved["id"]
+
+        self.runtime_state = copy.deepcopy(saved.get("runtime_state", {}))
+        return saved
+
+    def list_sessions(self):
+        sessions = self.session_manager.list_sessions()
+        return [
+            {
+                "id": session.get("id"),
+                "session_id": session.get("id"),
+                "title": session.get("title") or "New Chat",
+                "created": session.get("created"),
+                "modified": session.get("modified"),
+                "updated_at": session.get("modified"),
+                "chatHistory": copy.deepcopy(session.get("chatHistory", [])),
+                "chat_history": copy.deepcopy(session.get("chatHistory", [])),
+                "runtime_state": copy.deepcopy(session.get("runtime_state", {})),
+                "auto_allow": bool(session.get("auto_allow", False)),
+            }
+            for session in sessions
+        ]
+
+    def open_session(self, session_id):
+        session = self.session_manager.load_session(str(session_id))
+        if session is None:
+            return {"status": "not_found", "session_id": session_id}
+
+        self.active_session_id = session["id"]
+        self.chat_history = copy.deepcopy(session.get("chatHistory", []))
+        self.investigation = InvestigationState()
+        self.investigating_obj = copy.deepcopy(session.get("investigation", {}))
+        self.continue_event = bool(session.get("isContinue", False))
+        self.auto_allow = bool(session.get("auto_allow", False))
+        self.current_chat_model = str(session.get("model") or self.default_model).strip()
+        self.runtime_state = copy.deepcopy(session.get("runtime_state", {}))
+
+        state_payload = self.runtime_state or {}
+        self.state = str(state_payload.get("state") or DEFAULT_STATE)
+        self.problem_statenment = state_payload.get("problem_statenment", "")
+        self.hypotheses = state_payload.get("hypotheses", [])
+        self.result = state_payload.get("result", [])
+        self.hypothesis = state_payload.get("hypothesis", [])
+        self.Testcommands = state_payload.get("Testcommands", [])
+        self.facts = state_payload.get("facts", [])
+        self.command_outputs = state_payload.get("command_outputs", [])
+        self.verification = state_payload.get("verification", [])
+        self.evaluation = state_payload.get("evaluation", [])
+        self.contradistion_bool = bool(state_payload.get("contradistion_bool", False))
+        self.solution = state_payload.get("solution", [])
+        self.chat_started = bool(state_payload.get("chat_started", len(self.chat_history) > 0))
+
+        return {
+            "status": "opened",
+            "session_id": self.active_session_id,
+            "title": session.get("title") or "New Chat",
+            "chat_history": copy.deepcopy(self.chat_history),
+            "runtime_state": copy.deepcopy(self.runtime_state),
+            "auto_allow": self.auto_allow,
+            "current_chat_model": self.current_chat_model,
+            "default_model": self.default_model,
+            "chat_started": self.chat_started,
+        }
 
     @staticmethod
     def _is_controller_prompt(message):
@@ -118,180 +228,176 @@ class Api:
             cleaned.append(copy.deepcopy(entry))
         return cleaned
 
-    def _derive_session_title(self):
-        for entry in self.chat_history:
-            if entry.get("role") == "user" and entry.get("content"):
-                content = str(entry["content"]).strip()
-                if not content:
-                    continue
-                try:
-                    response = chat(
-                        model="smollm2:135m",
-                        messages=[
-                            {"role": "system", "content": "Generate a concise title for this chat. Reply with ONLY the title, nothing else."},
-                            {"role": "user", "content": content},
-                        ],
-                        stream=False,
-                        think=False,
-                        options={"num_thread": 2},
-                    )
-                    title = response.get("message", {}).get("content", "").strip().strip('"').strip("'")
-                    words = title.split()
-                    if len(words) > 3:
-                        title = " ".join(words[:3])
-                    return title if title else content[:30]
-                except Exception:
-                    return content[:30] + ("..." if len(content) > 30 else "")
-        return "New Chat"
-
-    def _session_snapshot(self):
-        now = datetime.now(timezone.utc).isoformat()
-        # When persisting a session, only include executed commands that
-        # belong to this session. This prevents commands executed in other
-        # sessions from appearing as if they were run in this one.
-        investigation_copy = copy.deepcopy(self.investigating_obj) or {}
-        executions = investigation_copy.get("executed_commands", [])
-        if executions:
-            if self.active_session_id is None:
-                # Do not persist any executed commands when there is no active
-                # session. Commands recorded with session_id=None likely came
-                # from previous runs and should not be carried into a new
-                # session's saved investigation.
-                investigation_copy["executed_commands"] = []
-            else:
-                filtered = [e for e in executions if not isinstance(e, dict) or e.get("session_id") == self.active_session_id]
-                investigation_copy["executed_commands"] = filtered
-
-        return {
-            "id": self.active_session_id,
-            "title": self._derive_session_title(),
-            "created": now,
-            "modified": now,
-            "chatHistory": self._sanitize_chat_history(self.chat_history),
-            "investigation": investigation_copy,
-            "isContinue": bool(self.continue_event),
-            "auto_allow": bool(self.auto_allow),
-            "model": self.current_chat_model,
-        }
-
-    def save_current_session(self, title=None):
-        snapshot = self._session_snapshot()
-        if title:
-            snapshot["title"] = title
-        if self.active_session_id is None:
-            saved = self.session_manager.create_session(snapshot)
-            self.active_session_id = saved["id"]
-        else:
-            snapshot["id"] = self.active_session_id
-            saved = self.session_manager.save_session(snapshot)
-            self.active_session_id = saved["id"]
-
-        return {
-            "session_id": self.active_session_id,
-            "id": self.active_session_id,
-            "title": saved["title"],
-            "updated_at": saved["modified"],
-            "auto_allow": self.auto_allow,
-            "current_chat_model": self.current_chat_model,
-            "default_model": self.default_model,
-            "chat_started": self.chat_started,
-        }
-
-    def list_sessions(self):
-        sessions = self.session_manager.list_sessions()
-        return [
-            {
-                "id": session.get("id"),
-                "session_id": session.get("id"),
-                "title": session.get("title") or "New Chat",
-                "created": session.get("created"),
-                "modified": session.get("modified"),
-                "updated_at": session.get("modified"),
-                "chatHistory": self._sanitize_chat_history(session.get("chatHistory", [])),
-                "chat_history": self._sanitize_chat_history(session.get("chatHistory", [])),
-                "investigation": copy.deepcopy(session.get("investigation", {})),
-                "investigating_obj": copy.deepcopy(session.get("investigation", {})),
-                "isContinue": bool(session.get("isContinue", False)),
-                "continue_event": bool(session.get("isContinue", False)),
-                "auto_allow": bool(session.get("auto_allow", False)),
-            }
-            for session in sessions
-        ]
-
-    def open_session(self, session_id):
-        session = self.session_manager.load_session(str(session_id))
-        if session is None:
-            return {"status": "not_found", "session_id": session_id}
-
-        self.active_session_id = session["id"]
-        raw_history = session.get("chatHistory", session.get("chat_history", []))
-        self.chat_history = self._sanitize_chat_history(raw_history)
-        self.current_chat_model = str(session.get("model") or self.default_model).strip()
-        self.investigation = InvestigationState()
-        self.investigating_obj = copy.deepcopy(session.get("investigation", {}))
-        self.continue_event = bool(session.get("isContinue", False))
-        self.auto_allow = bool(session.get("auto_allow", False))
-        self.state = DEFAULT_STATE
-        self.chat_started = len(self.chat_history) > 0
-
-        return {
-            "status": "opened",
-            "session_id": self.active_session_id,
-            "title": session.get("title") or "New Chat",
-            "chat_history": copy.deepcopy(self.chat_history),
-            "chatHistory": copy.deepcopy(self.chat_history),
-            "investigating_obj": copy.deepcopy(self.investigating_obj),
-            "continue_event": self.continue_event,
-            "auto_allow": self.auto_allow,
-            "current_chat_model": self.current_chat_model,
-            "default_model": self.default_model,
-            "chat_started": self.chat_started,
-        }
-
-    def set_auto_allow(self, enabled):
-        self.auto_allow = bool(enabled)
-        if self.active_session_id is not None:
-            self.save_current_session()
-        return {"status": "ok", "auto_allow": self.auto_allow}
-
-    def delete_session(self, session_id):
-        removed = self.session_manager.delete_session(str(session_id))
-        if removed and self.active_session_id == str(session_id):
-            self._reset_runtime_state()
-        return {"status": "deleted" if removed else "not_found", "session_id": session_id}
-
-    def create_new_session(self):
-        if self.active_session_id is not None:
-            self.save_current_session()
-
-        created = self.session_manager.create_session(
-            {
-                "id": None,
-                "title": "New Chat",
-                "created": datetime.now(timezone.utc).isoformat(),
-                "modified": datetime.now(timezone.utc).isoformat(),
-                "chatHistory": [],
-                "investigation": {},
-                "isContinue": False,
-                "auto_allow": self.permission_mode == "auto_confirm",
-                "model": self.default_model,
-            }
-        )
-        self._reset_runtime_state()
-        self.current_chat_model = self.default_model
-        self.chat_started = False
-        self.active_session_id = created["id"]
-        self.auto_allow = self.permission_mode == "auto_confirm"
-        return {
-            "status": "created",
-            "session_id": self.active_session_id,
-            "id": self.active_session_id,
-            "title": created["title"],
-            "auto_allow": self.auto_allow,
-            "current_chat_model": self.current_chat_model,
-            "default_model": self.default_model,
-            "chat_started": self.chat_started,
-        }
+    """ Legacy snapshot-based session code retained for reference only.
+    # The event-driven architecture stores replayable events instead of
+    # rehydrating a full chat/investigation snapshot from the database.
+    # def _derive_session_title(self):
+    #     for entry in self.chat_history:
+    #         if entry.get("role") == "user" and entry.get("content"):
+    #             content = str(entry["content"]).strip()
+    #             if not content:
+    #                 continue
+    #             try:
+    #                 response = chat(
+    #                     model="smollm2:135m",
+    #                     messages=[
+    #                         {"role": "system", "content": "Generate a concise title for this chat. Reply with ONLY the title, nothing else."},
+    #                         {"role": "user", "content": content},
+    #                     ],
+    #                     stream=False,
+    #                     think=False,
+    #                     options={"num_thread": 2},
+    #                 )
+    #                 title = response.get("message", {}).get("content", "").strip().strip('"').strip("'")
+    #                 words = title.split()
+    #                 if len(words) > 3:
+    #                     title = " ".join(words[:3])
+    #                 return title if title else content[:30]
+    #             except Exception:
+    #                 return content[:30] + ("..." if len(content) > 30 else "")
+    #     return "New Chat"
+    #
+    # def _session_snapshot(self):
+    #     now = datetime.now(timezone.utc).isoformat()
+    #     investigation_copy = copy.deepcopy(self.investigating_obj) or {}
+    #     executions = investigation_copy.get("executed_commands", [])
+    #     if executions:
+    #         if self.active_session_id is None:
+    #             investigation_copy["executed_commands"] = []
+    #         else:
+    #             filtered = [e for e in executions if not isinstance(e, dict) or e.get("session_id") == self.active_session_id]
+    #             investigation_copy["executed_commands"] = filtered
+    #
+    #     return {
+    #         "id": self.active_session_id,
+    #         "title": self._derive_session_title(),
+    #         "created": now,
+    #         "modified": now,
+    #         "chatHistory": self._sanitize_chat_history(self.chat_history),
+    #         "investigation": investigation_copy,
+    #         "isContinue": bool(self.continue_event),
+    #         "auto_allow": bool(self.auto_allow),
+    #         "model": self.current_chat_model,
+    #     }
+    #
+    # def save_current_session(self, title=None):
+    #     snapshot = self._session_snapshot()
+    #     if title:
+    #         snapshot["title"] = title
+    #     if self.active_session_id is None:
+    #         saved = self.session_manager.create_session(snapshot)
+    #         self.active_session_id = saved["id"]
+    #     else:
+    #         snapshot["id"] = self.active_session_id
+    #         saved = self.session_manager.save_session(snapshot)
+    #         self.active_session_id = saved["id"]
+    #
+    #     return {
+    #         "session_id": self.active_session_id,
+    #         "id": self.active_session_id,
+    #         "title": saved["title"],
+    #         "updated_at": saved["modified"],
+    #         "auto_allow": self.auto_allow,
+    #         "current_chat_model": self.current_chat_model,
+    #         "default_model": self.default_model,
+    #         "chat_started": self.chat_started,
+    #     }
+    #
+    # def list_sessions(self):
+    #     sessions = self.session_manager.list_sessions()
+    #     return [
+    #         {
+    #             "id": session.get("id"),
+    #             "session_id": session.get("id"),
+    #             "title": session.get("title") or "New Chat",
+    #             "created": session.get("created"),
+    #             "modified": session.get("modified"),
+    #             "updated_at": session.get("modified"),
+    #             "chatHistory": self._sanitize_chat_history(session.get("chatHistory", [])),
+    #             "chat_history": self._sanitize_chat_history(session.get("chatHistory", [])),
+    #             "investigation": copy.deepcopy(session.get("investigation", {})),
+    #             "investigating_obj": copy.deepcopy(session.get("investigation", {})),
+    #             "isContinue": bool(session.get("isContinue", False)),
+    #             "continue_event": bool(session.get("isContinue", False)),
+    #             "auto_allow": bool(session.get("auto_allow", False)),
+    #         }
+    #         for session in sessions
+    #     ]
+    #
+    # def open_session(self, session_id):
+    #     session = self.session_manager.load_session(str(session_id))
+    #     if session is None:
+    #         return {"status": "not_found", "session_id": session_id}
+    #
+    #     self.active_session_id = session["id"]
+    #     raw_history = session.get("chatHistory", session.get("chat_history", []))
+    #     self.chat_history = self._sanitize_chat_history(raw_history)
+    #     self.current_chat_model = str(session.get("model") or self.default_model).strip()
+    #     self.investigation = InvestigationState()
+    #     self.investigating_obj = copy.deepcopy(session.get("investigation", {}))
+    #     self.continue_event = bool(session.get("isContinue", False))
+    #     self.auto_allow = bool(session.get("auto_allow", False))
+    #     self.state = DEFAULT_STATE
+    #     self.chat_started = len(self.chat_history) > 0
+    #
+    #     return {
+    #         "status": "opened",
+    #         "session_id": self.active_session_id,
+    #         "title": session.get("title") or "New Chat",
+    #         "chat_history": copy.deepcopy(self.chat_history),
+    #         "chatHistory": copy.deepcopy(self.chat_history),
+    #         "investigating_obj": copy.deepcopy(self.investigating_obj),
+    #         "continue_event": self.continue_event,
+    #         "auto_allow": self.auto_allow,
+    #         "current_chat_model": self.current_chat_model,
+    #         "default_model": self.default_model,
+    #         "chat_started": self.chat_started,
+    #     }
+    #
+    # def set_auto_allow(self, enabled):
+    #     self.auto_allow = bool(enabled)
+    #     if self.active_session_id is not None:
+    #         self.save_current_session()
+    #     return {"status": "ok", "auto_allow": self.auto_allow}
+    #
+    # def delete_session(self, session_id):
+    #     removed = self.session_manager.delete_session(str(session_id))
+    #     if removed and self.active_session_id == str(session_id):
+    #         self._reset_runtime_state()
+    #     return {"status": "deleted" if removed else "not_found", "session_id": session_id}
+    #
+    # def create_new_session(self):
+    #     if self.active_session_id is not None:
+    #         self.save_current_session()
+    #
+    #     created = self.session_manager.create_session(
+    #         {
+    #             "id": None,
+    #             "title": "New Chat",
+    #             "created": datetime.now(timezone.utc).isoformat(),
+    #             "modified": datetime.now(timezone.utc).isoformat(),
+    #             "chatHistory": [],
+    #             "investigation": {},
+    #             "isContinue": False,
+    #             "auto_allow": self.permission_mode == "auto_confirm",
+    #             "model": self.default_model,
+    #         }
+    #     )
+    #     self._reset_runtime_state()
+    #     self.current_chat_model = self.default_model
+    #     self.chat_started = False
+    #     self.active_session_id = created["id"]
+    #     self.auto_allow = self.permission_mode == "auto_confirm"
+    #     return {
+    #         "status": "created",
+    #         "session_id": self.active_session_id,
+    #         "id": self.active_session_id,
+    #         "title": created["title"],
+    #         "auto_allow": self.auto_allow,
+    #         "current_chat_model": self.current_chat_model,
+    #         "default_model": self.default_model,
+    #         "chat_started": self.chat_started,
+    #     }"""
 
     def list_models(self):
         installed_models = []
@@ -422,251 +528,6 @@ class Api:
     def _serialize_investigation(self):
         return self.investigation.serialize()
 
-    def build_messages(self, message):
-        """Build the messages payload for the model without prior history."""
-        investigation_summary = self._serialize_investigation()
-        current_state_prompt = STATE_PROMPTS.get(self.state, STATE_PROMPTS[DEFAULT_STATE])
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "system", "content": current_state_prompt},
-            {"role": "system", "content": investigation_summary},
-            {"role": "system", "content": "Chat History" + str(self.chat_history)},
-            {"role": "user", "content": str(message).strip()},
-        ]
-        return messages
-
-    def _merge_investigation_update(self, update):
-        # delegate to InvestigationState and keep local reference in sync
-        self.investigation.merge_update(update, self.state)
-        self.investigating_obj = self.investigation.obj
-
-    def _transition_state(self, decision):
-        # kept for backward compatibility; delegate to InvestigationState
-        self.state , self.continue_event = self.investigation.transition_state(decision, self.state)
-
-    def parse_response(self, content):
-        if not content:
-            return {"reply": "I couldn't generate a response.", "steps": []}
-
-        cleaned = str(content).strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.strip("`").strip()
-            if cleaned.startswith("json"):
-                cleaned = cleaned[4:].strip()
-
-        try:
-            parsed = json.loads(cleaned)
-        except json.JSONDecodeError:
-            return {"reply": cleaned, "steps": []}
-
-        if isinstance(parsed, dict):
-            # honor is_continue provided by the model in the parsed response
-            try:
-                self.continue_event = bool(parsed.get("is_continue", False))
-            except Exception:
-                self.continue_event = False
-            decision = parsed.get("decision")
-            if isinstance(decision, str):
-                self._transition_state(decision)
-            update = parsed.get("investigation_update")
-            if isinstance(update, dict):
-                self._merge_investigation_update(update)
-            # self._apply_controller_transitions(parsed)
-            command = parsed.get("command")
-            return {
-                "reply": parsed.get("reply", cleaned),
-                "decision": self.state,
-                "command": command,
-                "requires_sudo": parsed.get("requires_sudo", False),
-                "steps": parsed.get("steps", []) if isinstance(parsed.get("steps"), list) else [],
-                "investigation_update": update,
-                "is_continue": self.continue_event,
-            }
-
-        return {"reply": cleaned, "steps": []}
-
-    def _compose_user_prompt(self, message, attachment_path=None, attachment_text=None):
-        base_message = str(message or "").strip()
-        attachment_path = str(attachment_path).strip() if attachment_path else None
-
-        if attachment_text is None and attachment_path:
-            attachment_file = Path(attachment_path)
-            if attachment_file.exists():
-                try:
-                    attachment_text = attachment_file.read_text(encoding="utf-8", errors="replace")
-                except OSError:
-                    attachment_text = ""
-
-        if not attachment_text:
-            return base_message
-
-        cleaned_attachment = str(attachment_text).strip()
-        if not cleaned_attachment:
-            return base_message
-
-        if base_message:
-            return (
-                f" {base_message} <User message>"
-                "Attached log file: "
-                f"{attachment_path or 'selected file'}\n\n"
-                f"{cleaned_attachment}\n\n"
-            )
-
-        return f"Attached log file: {attachment_path or 'selected file'}\n\n{cleaned_attachment}"
-
-    def respond(self, message, attachment_path=None, attachment_text=None):
-        """
-        Process a user message and generate a response using an Ollama model.
-        
-        Args:
-            message: The user's text message
-            attachment_path: Optional path to a file to attach/include
-            attachment_text: Optional pre-read attachment content
-            
-        Returns:
-            A dict containing the model's reply, steps, decision, and investigation update
-        """
-        # Validate input: at least one of message, attachment_path, or attachment_text must be provided
-        if not message and not attachment_path and not attachment_text:
-            return {"reply": "Please enter a message.", "steps": []}
-        
-        # If an attachment path is provided, read its contents
-        if attachment_path:
-            with open(attachment_path,'r') as f:
-                attachment_text = f.read()
-        
-        # Compose the full user prompt by combining message and attachment content
-        normalized_message = self._compose_user_prompt(message, attachment_path=attachment_path, attachment_text=attachment_text)
-        
-        # Return early if the composed message is empty after stripping whitespace
-        if not normalized_message.strip():
-            return {"reply": "Please enter a message.", "steps": []}
-
-        # Only add to chat history if this is not a controller prompt or internal investigation payload
-        # (these are special control messages that shouldn't be stored as regular chat history)
-        if not self._is_controller_prompt(normalized_message) and not self._is_internal_investigation_payload(normalized_message):
-            # Mark chat as started on first user message
-            if not self.chat_started:
-                self.chat_started = True
-            # Append user message to history and persist the session
-            self.chat_history.append({"role": "user", "content": normalized_message})
-            self.save_current_session()
-
-        # Build list of candidate models to try, with fallbacks
-        candidate_models = []
-        if self.current_chat_model:
-            candidate_models.append(self.current_chat_model)
-        # Add fallback models if not already in the list
-        for fallback in ["qwen2.5-coder:3b"]:
-            if fallback not in candidate_models:
-                candidate_models.append(fallback)
-        
-        # Track the last error for fallback reporting
-        last_error = None
-        
-        # Try each model in sequence until one succeeds
-        for model_name in candidate_models:
-            try:
-                print(f"[Penguin] Trying Ollama model: {model_name}", flush=True)
-                
-                # Call the Ollama chat API with the model and built messages
-                response = chat(
-                    model=model_name,
-                    messages=self.build_messages(normalized_message),
-                    format=JSON_SCHEMA,
-                    stream=False,
-                    think=False,
-                    keep_alive=-1,
-                    options = {
-                        "num_thread": 4
-                    }
-                )
-                print(f"[Penguin] Ollama response received from: {model_name}", flush=True)
-
-                # Extract content from response, handling both dict and object response formats
-                content = (
-                    response.get("message", {}).get("content", "")
-                    if isinstance(response, dict)
-                    else getattr(getattr(response, "message", None), "content", "")
-                )
-
-                # Process the response content if it exists
-                if content:
-                    # Try to parse content as JSON; if it fails, keep as string
-                    assistant_payload = content
-                    try:
-                        assistant_payload = json.loads(content)
-                    except json.JSONDecodeError:
-                        assistant_payload = content
-
-                    # Add assistant response to chat history
-                    self.chat_history.append({"role": "assistant", "content": assistant_payload})
-                    
-                    # Update the model that successfully responded
-                    self.model = model_name
-                    
-                    # Parse the response to extract structured data (reply, steps, decision, etc.)
-                    parsed = self.parse_response(content)
-                    
-                    # Persist the updated session with new message
-                    self.save_current_session()
-
-                    # Build the response data structure for the frontend
-                    response_data = {
-                        "reply": parsed.get("reply", ""),
-                        "steps": parsed.get("steps", []) if isinstance(parsed.get("steps"), list) else [],
-                        "has_more_steps": False,
-                        "decision": parsed.get("decision"),
-                        "investigation_update": self.investigating_obj,
-                        "is_continue": self.continue_event,
-                        "auto_allow": self.auto_allow,
-                    }
-
-                    # If there are multiple steps, mark as having more steps and include the first one
-                    if response_data["steps"]:
-                        response_data["has_more_steps"] = len(response_data["steps"]) > 1
-                        response_data["next_step"] = response_data["steps"][0]
-                    
-                    print(response_data)
-                    return response_data
-                    
-            except Exception as exc:
-                # Capture error and continue to next model
-                last_error = exc
-                print(f"[Penguin] Ollama model failed ({model_name}): {exc}", flush=True)
-
-        # If all models failed, return error response
-        if last_error is not None:
-            return {"reply": "Model Error", "steps": [], "error": str(last_error)}
-
-        # Fallback if no response generated
-        return {"reply": "I couldn't generate a response.", "steps": []}
-
-#     def report_command_output(self, command, output, success):
-#         """Prepare the next prompt without mutating the visible chat history."""
-#         status = "succeeded" if success else "failed"
-#         output_text = str(output or "").strip() or "(no output)"
-
-#         next_prompt = f"""
-# The requested command has finished.
-
-# Status: {status}
-
-# Command:
-# {command}
-
-# Output:
-# {output_text}
-
-# Do NOT repeat this command .
-# Choose the next diagnostic step based on the above output.
-# REMEMBER to change the next goal if the command output indicates that the goal has been achieved or is no longer relevant.
-# """
-#         return {
-#             "status": "reported",
-#             "next_prompt": next_prompt,
-#             "command_status": status,
-#         }
     def run_command_flag(self, command, use_sudo=False):
         """Approve the command and execute it through the real runner."""
         if not isinstance(command, str) or not command.strip():
@@ -794,8 +655,17 @@ class Api:
             self.user_approved.clear()
 
     def sendEvent(self,data,Data_type):
-        event_obj = {"data": data, "type": Data_type.lower().replace(" ", "_")}
-        self.windowobj.evaluate_js(f"window.handleInvestigationEvent({json.dumps(event_obj)})")
+        event_obj = {
+            "data": data,
+            "type": Data_type.lower().replace(" ", "_"),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "session_id": self.active_session_id,
+        }
+        self.runtime_state = self._runtime_snapshot()
+        self.chat_history.append({"role": "system", "content": json.dumps(event_obj, ensure_ascii=False)})
+        self.save_current_session()
+        if self.windowobj is not None:
+            self.windowobj.evaluate_js(f"window.handleInvestigationEvent({json.dumps(event_obj)})")
 
             
     def contradictionloop(self):
@@ -907,7 +777,6 @@ class Api:
             Data_type="hypotheses"
         )
         
-                
         print(self.hypotheses)
         self.state = next_step
         self.controller(next_step=next_step)

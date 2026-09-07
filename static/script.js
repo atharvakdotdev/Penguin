@@ -196,6 +196,35 @@ if (isChatPage) {
       });
     }
 
+    function replayChatHistory(history) {
+      const safeHistory = Array.isArray(history) ? history : [];
+      if (!safeHistory.length) {
+        return;
+      }
+
+      safeHistory.forEach((entry) => {
+        if (!entry || typeof entry !== 'object') {
+          return;
+        }
+
+        let event = entry;
+        if (!event.type && typeof entry.content === 'string') {
+          try {
+            const parsed = JSON.parse(entry.content);
+            if (parsed && typeof parsed === 'object' && parsed.type) {
+              event = parsed;
+            }
+          } catch (error) {
+            event = null;
+          }
+        }
+
+        if (event && event.type && typeof window.handleInvestigationEvent === 'function') {
+          window.handleInvestigationEvent(event);
+        }
+      });
+    }
+
     function renderPlanState(decision) {
       const checkSvg = `<svg fill="currentColor" style="margin-left: auto; color: var(--accent-green);" viewBox="0 0 24 24"><circle cx="12" cy="12" opacity="0.2" r="10"></circle><path d="m9 12 2 2 4-4" fill="none" stroke="currentColor" stroke-width="2"></path></svg>`;
       const circleSvg = `<svg fill="none" stroke="currentColor" stroke-width="1" style="margin-left: auto; color: var(--text-dim);" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle></svg>`;
@@ -339,54 +368,30 @@ if (isChatPage) {
       });
     }
 
-    function deriveDecisionFromHistory(history) {
-      if (!Array.isArray(history)) {
-        return 'understand';
+    function getDisplayTextFromPayload(payload) {
+      if (payload == null) {
+        return '';
       }
-      for (let index = history.length - 1; index >= 0; index -= 1) {
-        const entry = history[index];
-        if (!entry || entry.role !== 'assistant') {
-          continue;
-        }
-
-        const payload = (entry && typeof entry.content === 'object' && entry.content !== null)
-          ? entry.content
-          : (typeof entry.content === 'string' ? (() => {
-            try {
-              return JSON.parse(entry.content);
-            } catch (error) {
-              return null;
-            }
-          })() : null);
-
-        if (payload && typeof payload.decision === 'string') {
-          return payload.decision;
-        }
+      if (typeof payload === 'string') {
+        return payload;
       }
-      return 'understand';
-    }
-
-    function renderSessionHistory(history) {
-      clearChatView();
-      chat_history = Array.isArray(history) ? history : [];
-      window.chat_history = chat_history;
-      if (!Array.isArray(history)) {
-        return;
+      if (typeof payload === 'number' || typeof payload === 'boolean') {
+        return String(payload);
       }
-      history.forEach((entry) => {
-        if (!entry || !entry.role || entry.role === 'system') {
-          return;
-        }
-        if (entry.role === 'user' && isControllerPrompt(entry.content)) {
-          return;
-        }
-        if (entry.role === 'assistant' || entry.role === 'user') {
-          appendMessage(entry.role === 'assistant' ? 'agent' : 'user', entry);
-        }
-      });
-      chatMessages.scrollTop = chatMessages.scrollHeight;
-      renderPlanState(deriveDecisionFromHistory(history));
-      renderTerminalHistory();
+      if (Array.isArray(payload)) {
+        return payload.map((item) => getDisplayTextFromPayload(item)).filter(Boolean).join('\n\n');
+      }
+      if (typeof payload === 'object') {
+        if (typeof payload.problem_statement === 'string') return payload.problem_statement;
+        if (typeof payload.summary === 'string') return payload.summary;
+        if (typeof payload.issue === 'string') return payload.issue;
+        if (typeof payload.message === 'string') return payload.message;
+        if (typeof payload.description === 'string') return payload.description;
+        if (typeof payload.content === 'string') return payload.content;
+        if (typeof payload.text === 'string') return payload.text;
+        return JSON.stringify(payload, null, 2);
+      }
+      return '';
     }
 
     function renderSessionList() {
@@ -452,10 +457,13 @@ if (isChatPage) {
               const result = await window.pywebview.api.open_session(sessionId);
               if (result && result.status === 'opened') {
                 activeSessionId = sessionId;
-                window.investigating_obj = result.investigating_obj || result.investigation || {};
+                const runtimeState = result.runtime_state || {};
+                window.investigating_obj = result.investigating_obj || result.investigation || runtimeState.investigation || {};
                 setSessionTitle(result.title || 'Loaded Session');
-                updateAutoAllowUI(result.auto_allow || false);
-                renderSessionHistory(result.chat_history || []);
+                updateAutoAllowUI(result.auto_allow || runtimeState.auto_allow || false);
+                clearChatView();
+                clearTerminalView();
+                replayChatHistory(result.chat_history || runtimeState.chat_history || []);
                 renderTerminalHistory();
                 sidebar.classList.remove('is-session-mode');
                 sessionsOpen = false;
@@ -1183,7 +1191,7 @@ if (isChatPage) {
 
       } catch (error) {
         investigation.text.textContent =
-            `Sorry, the agent could not respond: ${error.message || error}`;
+          `Sorry, the agent could not respond: ${error.message || error}`;
 
       } finally {
         clearPendingAttachment();
@@ -1237,12 +1245,15 @@ if (isChatPage) {
     function handleProblemStatement(data) {
       if (!currentInvestigation) return;
 
-      currentInvestigation.text.textContent = data.problem_statement;
+      const payload = data && typeof data === 'object' && !Array.isArray(data) ? data : { problem_statement: data };
+      const problemText = getDisplayTextFromPayload(payload.problem_statement ?? payload.issue ?? payload.summary ?? payload);
+      currentInvestigation.text.textContent = problemText || 'Problem statement received.';
       updateInvestigationTitle(currentInvestigation, "Problem Identified");
     }
 
     function handleHypotheses(data) {
-      renderHypotheses(data && Array.isArray(data.hypotheses) ? data.hypotheses : data);
+      const hypothesisList = data && Array.isArray(data.hypotheses) ? data.hypotheses : (Array.isArray(data) ? data : (data && typeof data === 'object' ? [data] : []));
+      renderHypotheses(hypothesisList);
 
       if (!currentInvestigation) return;
 
@@ -1263,13 +1274,16 @@ if (isChatPage) {
     function handleTestingHypothesis(data) {
       if (!currentInvestigation) return;
 
-      if (data && data.auto_allow !== undefined) {
-        updateAutoAllowUI(data.auto_allow);
+      const payload = data && typeof data === 'object' ? data : {};
+      if (payload.auto_allow !== undefined) {
+        updateAutoAllowUI(payload.auto_allow);
       }
 
-      const testingHypothesis = data && typeof data.hypothesis === 'object'
-        ? data.hypothesis.hypothesis
-        : (data && typeof data.hypothesis === 'string' ? data.hypothesis : '');
+      const hypothesisObject = payload.hypothesis && typeof payload.hypothesis === 'object' ? payload.hypothesis : null;
+      const testingHypothesis = hypothesisObject && typeof hypothesisObject.hypothesis === 'string'
+        ? hypothesisObject.hypothesis
+        : (typeof payload.hypothesis === 'string' ? payload.hypothesis : '');
+
       document.querySelectorAll('#hypothesisList .plan-item').forEach((item) => {
         const isTesting = Boolean(testingHypothesis) && item.dataset.hypothesis === testingHypothesis;
         item.classList.toggle('active', isTesting);
@@ -1287,7 +1301,7 @@ if (isChatPage) {
         }
       });
 
-      const tests = data && Array.isArray(data.tests) ? data.tests : [];
+      const tests = Array.isArray(payload.tests) ? payload.tests : [];
       if (tests.length) {
         const response = {
           steps: tests.map((test, index) => ({
@@ -1297,9 +1311,9 @@ if (isChatPage) {
           }))
         };
         currentInvestigation.text.innerHTML = '';
-          currentInvestigation.details.dataset.pendingCommands = String(
-            response.steps.filter((step) => step.command).length
-          );
+        currentInvestigation.details.dataset.pendingCommands = String(
+          response.steps.filter((step) => step.command).length
+        );
         if (autoAllowEnabled) {
           currentInvestigation.text.textContent = 'Running diagnostic tests...';
         } else {
@@ -1389,7 +1403,8 @@ if (isChatPage) {
     function handleSolution(data) {
       if (!currentInvestigation) return;
 
-      const step = data && typeof data === 'object' && data.step ? data.step : {};
+      const payload = data && typeof data === 'object' && !Array.isArray(data) ? data : { step: { command: '', rationale: getDisplayTextFromPayload(data) } };
+      const step = payload.step && typeof payload.step === 'object' ? payload.step : {};
       const command = typeof step.command === 'string' ? step.command : '';
 
       if (command) {
@@ -1400,7 +1415,7 @@ if (isChatPage) {
               ? step.rationale
               : (typeof step.reason === 'string' ? step.reason : 'Review and approve the recommended remediation command.'),
             command,
-            requires_sudo: Boolean(step.requires_sudo || data?.requires_sudo),
+            requires_sudo: Boolean(step.requires_sudo || payload.requires_sudo),
           }]
         };
 
@@ -1411,7 +1426,7 @@ if (isChatPage) {
         return;
       }
 
-      currentInvestigation.text.textContent = formatSolution(data);
+      currentInvestigation.text.textContent = formatSolution(payload);
       updateInvestigationTitle(currentInvestigation, 'Proposed Solution');
     }
 

@@ -38,7 +38,8 @@ class SessionManager:
                     investigation TEXT NOT NULL,
                     isContinue INTEGER NOT NULL,
                     auto_allow INTEGER NOT NULL DEFAULT 0,
-                    model TEXT NOT NULL DEFAULT ''
+                    model TEXT NOT NULL DEFAULT '',
+                    runtime_state TEXT NOT NULL DEFAULT '{}'
                 )
                 """
             )
@@ -50,22 +51,26 @@ class SessionManager:
                 )
                 """
             )
-            # Migration check for existing databases lacking the auto_allow or model columns
+            # Migration check for existing databases lacking the auto_allow, model, or runtime_state columns
             columns = [row["name"] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()]
             if "auto_allow" not in columns:
                 conn.execute("ALTER TABLE sessions ADD COLUMN auto_allow INTEGER NOT NULL DEFAULT 0")
                 columns.append("auto_allow")
             if "model" not in columns:
                 conn.execute("ALTER TABLE sessions ADD COLUMN model TEXT NOT NULL DEFAULT ''")
+                columns.append("model")
+            if "runtime_state" not in columns:
+                conn.execute("ALTER TABLE sessions ADD COLUMN runtime_state TEXT NOT NULL DEFAULT '{}'")
 
     def _load_store(self) -> dict[str, dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT id, title, created, modified, chatHistory, investigation, isContinue, auto_allow, model FROM sessions"
+                "SELECT id, title, created, modified, chatHistory, investigation, isContinue, auto_allow, model, runtime_state FROM sessions"
             ).fetchall()
 
         store: dict[str, dict[str, Any]] = {}
         for row in rows:
+            raw_runtime_state = row["runtime_state"]
             store[row["id"]] = {
                 "id": row["id"],
                 "title": row["title"],
@@ -76,6 +81,7 @@ class SessionManager:
                 "isContinue": bool(row["isContinue"]),
                 "auto_allow": bool(row["auto_allow"]),
                 "model": row["model"],
+                "runtime_state": json.loads(raw_runtime_state) if raw_runtime_state else {},
             }
         return store
 
@@ -128,6 +134,7 @@ class SessionManager:
             "isContinue": bool(source.get("isContinue", False)),
             "auto_allow": bool(source.get("auto_allow", False)),
             "model": str(source.get("model") or "").strip(),
+            "runtime_state": copy.deepcopy(source.get("runtime_state", {})),
         }
         return normalized
 
@@ -140,8 +147,8 @@ class SessionManager:
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO sessions (id, title, created, modified, chatHistory, investigation, isContinue, auto_allow, model)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO sessions (id, title, created, modified, chatHistory, investigation, isContinue, auto_allow, model, runtime_state)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     normalized["id"],
@@ -153,6 +160,7 @@ class SessionManager:
                     int(normalized["isContinue"]),
                     int(normalized["auto_allow"]),
                     normalized["model"],
+                    json.dumps(normalized["runtime_state"], ensure_ascii=False),
                 ),
             )
 
@@ -167,8 +175,8 @@ class SessionManager:
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO sessions (id, title, created, modified, chatHistory, investigation, isContinue, auto_allow, model)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO sessions (id, title, created, modified, chatHistory, investigation, isContinue, auto_allow, model, runtime_state)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     normalized["id"],
@@ -180,6 +188,7 @@ class SessionManager:
                     int(normalized["isContinue"]),
                     int(normalized["auto_allow"]),
                     normalized["model"],
+                    json.dumps(normalized["runtime_state"], ensure_ascii=False),
                 ),
             )
 
@@ -189,7 +198,7 @@ class SessionManager:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT id, title, created, modified, chatHistory, investigation, isContinue, auto_allow, model
+                SELECT id, title, created, modified, chatHistory, investigation, isContinue, auto_allow, model, runtime_state
                 FROM sessions
                 WHERE id = ?
                 """,
@@ -199,6 +208,7 @@ class SessionManager:
         if row is None:
             return None
 
+        runtime_state = row["runtime_state"]
         return {
             "id": row["id"],
             "title": row["title"],
@@ -209,6 +219,7 @@ class SessionManager:
             "isContinue": bool(row["isContinue"]),
             "auto_allow": bool(row["auto_allow"]),
             "model": row["model"],
+            "runtime_state": json.loads(runtime_state) if runtime_state else {},
         }
 
     def list_sessions(self) -> list[dict[str, Any]]:
@@ -232,3 +243,4 @@ class SessionManager:
 
     def switch_session(self, session_id: str) -> dict[str, Any] | None:
         return self.load_session(session_id)
+
