@@ -39,6 +39,8 @@ class Api:
         self.chat_history = []
         self.runtime_state = {}
         self.active_session_id = None
+        self._run_session_id = None
+        self._investigation_running = False
         self.active_process = None
         self.investigation = InvestigationState()
         self.input_queue = queue.Queue()
@@ -128,6 +130,28 @@ class Api:
         self.runtime_state = copy.deepcopy(saved.get("runtime_state", {}))
         return saved
 
+    def _event_session_id(self):
+        if self._investigation_running and self._run_session_id is not None:
+            return self._run_session_id
+        return self.active_session_id
+
+    def _save_event_to_session(self, session_id, event_obj):
+        if session_id is None:
+            return
+
+        session = self.session_manager.load_session(str(session_id))
+        if session is None:
+            return
+
+        history = copy.deepcopy(session.get("chatHistory", []))
+        history.append({"role": "system", "content": json.dumps(event_obj, ensure_ascii=False)})
+        session["chatHistory"] = history
+
+        runtime_state = copy.deepcopy(session.get("runtime_state", {}))
+        runtime_state["chat_history"] = history
+        session["runtime_state"] = runtime_state
+        self.session_manager.save_session(session)
+
     def list_sessions(self):
         sessions = self.session_manager.list_sessions()
         return [
@@ -180,7 +204,55 @@ class Api:
             "session_id": self.active_session_id,
             "title": session.get("title") or "New Chat",
             "chat_history": copy.deepcopy(self.chat_history),
+            "investigation": copy.deepcopy(self.investigating_obj),
+            "investigating_obj": copy.deepcopy(self.investigating_obj),
             "runtime_state": copy.deepcopy(self.runtime_state),
+            "auto_allow": self.auto_allow,
+            "current_chat_model": self.current_chat_model,
+            "default_model": self.default_model,
+            "chat_started": self.chat_started,
+        }
+
+    def delete_session(self, session_id):
+        removed = self.session_manager.delete_session(str(session_id))
+        if removed and str(self.active_session_id) == str(session_id):
+            self._reset_runtime_state()
+        return {
+            "status": "deleted" if removed else "not_found",
+            "session_id": session_id,
+        }
+
+    def create_new_session(self):
+        if self.active_session_id is not None:
+            self.save_current_session()
+
+        self._reset_runtime_state()
+        self.current_chat_model = self.default_model
+        self.chat_started = False
+        self.auto_allow = self.permission_mode == "auto_confirm"
+
+        created = self.session_manager.create_session(
+            {
+                "id": None,
+                "title": "New Chat",
+                "created": datetime.now(timezone.utc).isoformat(),
+                "modified": datetime.now(timezone.utc).isoformat(),
+                "chatHistory": [],
+                "investigation": copy.deepcopy(self.investigating_obj),
+                "isContinue": False,
+                "auto_allow": self.auto_allow,
+                "model": self.current_chat_model,
+                "runtime_state": self._runtime_snapshot(),
+            }
+        )
+        self.active_session_id = created["id"]
+        self.runtime_state = copy.deepcopy(created.get("runtime_state", {}))
+
+        return {
+            "status": "created",
+            "session_id": self.active_session_id,
+            "id": self.active_session_id,
+            "title": created["title"],
             "auto_allow": self.auto_allow,
             "current_chat_model": self.current_chat_model,
             "default_model": self.default_model,
@@ -228,176 +300,6 @@ class Api:
             cleaned.append(copy.deepcopy(entry))
         return cleaned
 
-    """ Legacy snapshot-based session code retained for reference only.
-    # The event-driven architecture stores replayable events instead of
-    # rehydrating a full chat/investigation snapshot from the database.
-    # def _derive_session_title(self):
-    #     for entry in self.chat_history:
-    #         if entry.get("role") == "user" and entry.get("content"):
-    #             content = str(entry["content"]).strip()
-    #             if not content:
-    #                 continue
-    #             try:
-    #                 response = chat(
-    #                     model="smollm2:135m",
-    #                     messages=[
-    #                         {"role": "system", "content": "Generate a concise title for this chat. Reply with ONLY the title, nothing else."},
-    #                         {"role": "user", "content": content},
-    #                     ],
-    #                     stream=False,
-    #                     think=False,
-    #                     options={"num_thread": 2},
-    #                 )
-    #                 title = response.get("message", {}).get("content", "").strip().strip('"').strip("'")
-    #                 words = title.split()
-    #                 if len(words) > 3:
-    #                     title = " ".join(words[:3])
-    #                 return title if title else content[:30]
-    #             except Exception:
-    #                 return content[:30] + ("..." if len(content) > 30 else "")
-    #     return "New Chat"
-    #
-    # def _session_snapshot(self):
-    #     now = datetime.now(timezone.utc).isoformat()
-    #     investigation_copy = copy.deepcopy(self.investigating_obj) or {}
-    #     executions = investigation_copy.get("executed_commands", [])
-    #     if executions:
-    #         if self.active_session_id is None:
-    #             investigation_copy["executed_commands"] = []
-    #         else:
-    #             filtered = [e for e in executions if not isinstance(e, dict) or e.get("session_id") == self.active_session_id]
-    #             investigation_copy["executed_commands"] = filtered
-    #
-    #     return {
-    #         "id": self.active_session_id,
-    #         "title": self._derive_session_title(),
-    #         "created": now,
-    #         "modified": now,
-    #         "chatHistory": self._sanitize_chat_history(self.chat_history),
-    #         "investigation": investigation_copy,
-    #         "isContinue": bool(self.continue_event),
-    #         "auto_allow": bool(self.auto_allow),
-    #         "model": self.current_chat_model,
-    #     }
-    #
-    # def save_current_session(self, title=None):
-    #     snapshot = self._session_snapshot()
-    #     if title:
-    #         snapshot["title"] = title
-    #     if self.active_session_id is None:
-    #         saved = self.session_manager.create_session(snapshot)
-    #         self.active_session_id = saved["id"]
-    #     else:
-    #         snapshot["id"] = self.active_session_id
-    #         saved = self.session_manager.save_session(snapshot)
-    #         self.active_session_id = saved["id"]
-    #
-    #     return {
-    #         "session_id": self.active_session_id,
-    #         "id": self.active_session_id,
-    #         "title": saved["title"],
-    #         "updated_at": saved["modified"],
-    #         "auto_allow": self.auto_allow,
-    #         "current_chat_model": self.current_chat_model,
-    #         "default_model": self.default_model,
-    #         "chat_started": self.chat_started,
-    #     }
-    #
-    # def list_sessions(self):
-    #     sessions = self.session_manager.list_sessions()
-    #     return [
-    #         {
-    #             "id": session.get("id"),
-    #             "session_id": session.get("id"),
-    #             "title": session.get("title") or "New Chat",
-    #             "created": session.get("created"),
-    #             "modified": session.get("modified"),
-    #             "updated_at": session.get("modified"),
-    #             "chatHistory": self._sanitize_chat_history(session.get("chatHistory", [])),
-    #             "chat_history": self._sanitize_chat_history(session.get("chatHistory", [])),
-    #             "investigation": copy.deepcopy(session.get("investigation", {})),
-    #             "investigating_obj": copy.deepcopy(session.get("investigation", {})),
-    #             "isContinue": bool(session.get("isContinue", False)),
-    #             "continue_event": bool(session.get("isContinue", False)),
-    #             "auto_allow": bool(session.get("auto_allow", False)),
-    #         }
-    #         for session in sessions
-    #     ]
-    #
-    # def open_session(self, session_id):
-    #     session = self.session_manager.load_session(str(session_id))
-    #     if session is None:
-    #         return {"status": "not_found", "session_id": session_id}
-    #
-    #     self.active_session_id = session["id"]
-    #     raw_history = session.get("chatHistory", session.get("chat_history", []))
-    #     self.chat_history = self._sanitize_chat_history(raw_history)
-    #     self.current_chat_model = str(session.get("model") or self.default_model).strip()
-    #     self.investigation = InvestigationState()
-    #     self.investigating_obj = copy.deepcopy(session.get("investigation", {}))
-    #     self.continue_event = bool(session.get("isContinue", False))
-    #     self.auto_allow = bool(session.get("auto_allow", False))
-    #     self.state = DEFAULT_STATE
-    #     self.chat_started = len(self.chat_history) > 0
-    #
-    #     return {
-    #         "status": "opened",
-    #         "session_id": self.active_session_id,
-    #         "title": session.get("title") or "New Chat",
-    #         "chat_history": copy.deepcopy(self.chat_history),
-    #         "chatHistory": copy.deepcopy(self.chat_history),
-    #         "investigating_obj": copy.deepcopy(self.investigating_obj),
-    #         "continue_event": self.continue_event,
-    #         "auto_allow": self.auto_allow,
-    #         "current_chat_model": self.current_chat_model,
-    #         "default_model": self.default_model,
-    #         "chat_started": self.chat_started,
-    #     }
-    #
-    # def set_auto_allow(self, enabled):
-    #     self.auto_allow = bool(enabled)
-    #     if self.active_session_id is not None:
-    #         self.save_current_session()
-    #     return {"status": "ok", "auto_allow": self.auto_allow}
-    #
-    # def delete_session(self, session_id):
-    #     removed = self.session_manager.delete_session(str(session_id))
-    #     if removed and self.active_session_id == str(session_id):
-    #         self._reset_runtime_state()
-    #     return {"status": "deleted" if removed else "not_found", "session_id": session_id}
-    #
-    # def create_new_session(self):
-    #     if self.active_session_id is not None:
-    #         self.save_current_session()
-    #
-    #     created = self.session_manager.create_session(
-    #         {
-    #             "id": None,
-    #             "title": "New Chat",
-    #             "created": datetime.now(timezone.utc).isoformat(),
-    #             "modified": datetime.now(timezone.utc).isoformat(),
-    #             "chatHistory": [],
-    #             "investigation": {},
-    #             "isContinue": False,
-    #             "auto_allow": self.permission_mode == "auto_confirm",
-    #             "model": self.default_model,
-    #         }
-    #     )
-    #     self._reset_runtime_state()
-    #     self.current_chat_model = self.default_model
-    #     self.chat_started = False
-    #     self.active_session_id = created["id"]
-    #     self.auto_allow = self.permission_mode == "auto_confirm"
-    #     return {
-    #         "status": "created",
-    #         "session_id": self.active_session_id,
-    #         "id": self.active_session_id,
-    #         "title": created["title"],
-    #         "auto_allow": self.auto_allow,
-    #         "current_chat_model": self.current_chat_model,
-    #         "default_model": self.default_model,
-    #         "chat_started": self.chat_started,
-    #     }"""
 
     def list_models(self):
         installed_models = []
@@ -529,13 +431,17 @@ class Api:
         return self.investigation.serialize()
 
     def run_command_flag(self, command, use_sudo=False):
-        """Approve the command and execute it through the real runner."""
+        """Approve a command that is already waiting in the investigation loop."""
         if not isinstance(command, str) or not command.strip():
             return {"success": False, "output": "", "error": "No command supplied", "return_code": -1}
 
-        self.user_approved.clear()
         self.user_approved.set()
-        return self.run_command(command, use_sudo=use_sudo)
+        return {
+            "success": True,
+            "output": "",
+            "error": "",
+            "return_code": 0,
+        }
     def _record_command(self, command, success, output):
         executions = self.investigating_obj.setdefault("executed_commands", [])
         execution = {
@@ -543,7 +449,7 @@ class Api:
             "success": success,
             "output": output,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "session_id": self.active_session_id,
+            "session_id": self._event_session_id(),
         }
         executions.append(execution)
 
@@ -602,7 +508,7 @@ class Api:
                 "error": result.stderr or "",
                 "return_code": result.returncode,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "session_id": self.active_session_id,
+                "session_id": self._event_session_id(),
             }
 
             if self.windowobj is not None:
@@ -626,7 +532,7 @@ class Api:
                         "error": error,
                         "return_code": -1,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "session_id": self.active_session_id,
+                        "session_id": self._event_session_id(),
                     }
                 ], "command_outputs")
             return {
@@ -647,7 +553,7 @@ class Api:
                         "error": error,
                         "return_code": -1,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "session_id": self.active_session_id,
+                        "session_id": self._event_session_id(),
                     }
                 ], "command_outputs")
             return {"success": False, "output": "", "error": error, "return_code": -1}
@@ -655,15 +561,19 @@ class Api:
             self.user_approved.clear()
 
     def sendEvent(self,data,Data_type):
+        session_id = self._event_session_id()
         event_obj = {
             "data": data,
             "type": Data_type.lower().replace(" ", "_"),
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "session_id": self.active_session_id,
+            "session_id": session_id,
         }
-        self.runtime_state = self._runtime_snapshot()
-        self.chat_history.append({"role": "system", "content": json.dumps(event_obj, ensure_ascii=False)})
-        self.save_current_session()
+        if session_id == self.active_session_id:
+            self.runtime_state = self._runtime_snapshot()
+            self.chat_history.append({"role": "system", "content": json.dumps(event_obj, ensure_ascii=False)})
+            self.save_current_session()
+        else:
+            self._save_event_to_session(session_id, event_obj)
         if self.windowobj is not None:
             self.windowobj.evaluate_js(f"window.handleInvestigationEvent({json.dumps(event_obj)})")
 
@@ -820,7 +730,17 @@ class Api:
         self.controller(next_step=next_step)
 
     def StartInvetigation(self,user_input,attached_path,attached,next_step="Hypothesis"):
-
+        self._run_session_id = self.active_session_id
+        self._investigation_running = True
+        event_obj = {
+                    "data": user_input,
+                    "type": "user",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "session_id": self._run_session_id,
+                }
+        self.runtime_state = self._runtime_snapshot()
+        self.chat_history.append({"role": "user", "content": json.dumps(event_obj, ensure_ascii=False)})
+        self.save_current_session()
         self.problem_statenment = self.investigation.generateProblemStatement(
             user_request=user_input,
             model_name="qwen2.5-coder:3b"
@@ -834,6 +754,8 @@ class Api:
         )
         self.state = next_step
         self.controller(next_step=next_step)
+        self._investigation_running = False
+        self._run_session_id = None
         # Start the diagnosis loop after problem statement is identified
         
 

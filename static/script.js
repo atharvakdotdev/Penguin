@@ -468,6 +468,7 @@ if (isChatPage) {
                 sidebar.classList.remove('is-session-mode');
                 sessionsOpen = false;
                 renderSessionList();
+                await window.pywebview.api.controller();
               }
             } catch (error) {
               addLogOutput(`Unable to open session: ${error.message || error}`, true);
@@ -1453,11 +1454,23 @@ if (isChatPage) {
 
       if (!event?.type) return;
 
+      if (
+        event.session_id !== null &&
+        event.session_id !== undefined &&
+        activeSessionId !== null &&
+        String(event.session_id) !== String(activeSessionId)
+      ) {
+        return;
+      }
+
       switch (event.type) {
         case "investigation_started":
           if (currentInvestigation) {
             currentInvestigation.text.textContent = event.data?.message || 'Understanding the problem...';
           }
+          break;
+        case "user":
+          appendMessage('user', event.data);
           break;
         case "problem_statement":
           handleProblemStatement(event.data);
