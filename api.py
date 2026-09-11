@@ -10,6 +10,7 @@ from unittest import result
 import webview
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from ollama import chat
 
@@ -41,6 +42,9 @@ class Api:
         self.active_session_id = None
         self._run_session_id = None
         self._investigation_running = False
+        self._active_runs = {}
+        self._active_runs_lock = threading.Lock()
+        self._pending_approvals = {}
         self.active_process = None
         self.investigation = InvestigationState()
         self.input_queue = queue.Queue()
@@ -80,6 +84,8 @@ class Api:
         self.continue_event = False
         self.auto_allow = self.permission_mode == "auto_confirm"
         self.active_session_id = None
+        self._run_session_id = None
+        self._investigation_running = False
 
     def _runtime_snapshot(self):
         return {
@@ -147,6 +153,54 @@ class Api:
         history.append({"role": "system", "content": json.dumps(event_obj, ensure_ascii=False)})
         session["chatHistory"] = history
 
+        runtime_state = copy.deepcopy(session.get("runtime_state", {}))
+        runtime_state["chat_history"] = history
+        session["runtime_state"] = runtime_state
+        self.session_manager.save_session(session)
+
+    def _remove_command_from_history(self, command):
+        session_id = self._event_session_id()
+        if session_id is None or not isinstance(command, str):
+            return
+
+        session = self.session_manager.load_session(str(session_id))
+        if session is None:
+            return
+
+        history = copy.deepcopy(session.get("chatHistory", []))
+        changed = False
+        for entry in history:
+            if not isinstance(entry, dict) or not isinstance(entry.get("content"), str):
+                continue
+            try:
+                event = json.loads(entry["content"])
+            except json.JSONDecodeError:
+                continue
+
+            if event.get("type") != "testing_hypothesis":
+                continue
+            data = event.get("data")
+            tests = data.get("tests") if isinstance(data, dict) else None
+            if not isinstance(tests, list):
+                continue
+
+            remaining = [
+                test for test in tests
+                if not (isinstance(test, dict) and test.get("command") == command)
+            ]
+            if len(remaining) == len(tests):
+                continue
+
+            event["data"] = dict(data)
+            event["data"]["tests"] = remaining
+            entry["content"] = json.dumps(event, ensure_ascii=False)
+            changed = True
+
+        if not changed:
+            return
+
+        self.chat_history = history
+        session["chatHistory"] = history
         runtime_state = copy.deepcopy(session.get("runtime_state", {}))
         runtime_state["chat_history"] = history
         session["runtime_state"] = runtime_state
@@ -435,13 +489,16 @@ class Api:
         if not isinstance(command, str) or not command.strip():
             return {"success": False, "output": "", "error": "No command supplied", "return_code": -1}
 
-        self.user_approved.set()
-        return {
-            "success": True,
-            "output": "",
-            "error": "",
-            "return_code": 0,
-        }
+        with self._active_runs_lock:
+            runs = list(self._active_runs.values())
+
+        for run in reversed(runs):
+            approval = run._pending_approvals.get(command)
+            if approval is not None:
+                approval.set()
+                return {"success": True, "output": "", "error": "", "return_code": 0}
+
+        return {"success": False, "output": "", "error": "Command is no longer pending", "return_code": -1}
     def _record_command(self, command, success, output):
         executions = self.investigating_obj.setdefault("executed_commands", [])
         execution = {
@@ -482,10 +539,13 @@ class Api:
 
         return not (last_entry_for_session.get("command") == command)
 
-    def run_command(self, command, use_sudo=False):
+    def run_command(self, command, use_sudo=False, command_id=None):
         """Execute a shell command after explicit approval and emit output through the event stream."""
+        command_id = command_id or command
+        approval = None
         if not self.auto_allow:
-            self.user_approved.wait()
+            approval = self._pending_approvals.setdefault(command_id, threading.Event())
+            approval.wait()
 
         try:
             if use_sudo:
@@ -500,6 +560,7 @@ class Api:
             )
             output = result.stdout or result.stderr or ""
             self._record_command(command, result.returncode == 0, output)
+            self._remove_command_from_history(command)
 
             output_payload = {
                 "command": command,
@@ -522,6 +583,7 @@ class Api:
             }
         except subprocess.TimeoutExpired:
             self._record_command(command, False, "Command timed out after 30 seconds")
+            self._remove_command_from_history(command)
             error = "Command timed out after 30 seconds"
             if self.windowobj is not None:
                 self.sendEvent([
@@ -543,6 +605,7 @@ class Api:
             }
         except Exception as e:
             self._record_command(command, False, str(e))
+            self._remove_command_from_history(command)
             error = str(e)
             if self.windowobj is not None:
                 self.sendEvent([
@@ -558,7 +621,8 @@ class Api:
                 ], "command_outputs")
             return {"success": False, "output": "", "error": error, "return_code": -1}
         finally:
-            self.user_approved.clear()
+            if approval is not None:
+                self._pending_approvals.pop(command_id, None)
 
     def sendEvent(self,data,Data_type):
         session_id = self._event_session_id()
@@ -701,10 +765,16 @@ class Api:
                 hypothesis=hypothesis,
                 model_name="qwen2.5-coder:3b"
             )
+            tests = self.Testcommands.get("tests", [])
+            for test in tests:
+                if isinstance(test, dict):
+                    test.setdefault("command_id", str(uuid4()))
+                    if not self.auto_allow:
+                        self._pending_approvals.setdefault(test["command_id"], threading.Event())
             self.sendEvent(
             data={
                 "hypothesis": hypothesis,
-                "tests": self.Testcommands.get("tests", []),
+                "tests": tests,
                 "auto_allow": self.auto_allow,
             },
             Data_type="testing_hypothesis"
@@ -713,8 +783,8 @@ class Api:
             print(self.Testcommands)
             # input("Press Enter to execute the tests...")
 
-            for test in self.Testcommands["tests"]:
-                result = self.run_command(test["command"])
+            for test in tests:
+                result = self.run_command(test["command"], command_id=test.get("command_id"))
                 print(result)
                 self.command_outputs.append(result)
                 self.sendEvent(
@@ -730,32 +800,54 @@ class Api:
         self.controller(next_step=next_step)
 
     def StartInvetigation(self,user_input,attached_path,attached,next_step="Hypothesis"):
+        run = Api(self.windowobj)
+        run.session_manager = self.session_manager
+        run.default_model = self.default_model
+        run.permission_mode = self.permission_mode
+        run.auto_allow = self.auto_allow
+        run.current_chat_model = self.current_chat_model
+        run.active_session_id = self.active_session_id
+        run._active_runs = self._active_runs
+        run._active_runs_lock = self._active_runs_lock
+
+        with self._active_runs_lock:
+            self._active_runs[id(run)] = run
+
+        try:
+            return run._start_investigation(user_input, attached_path, attached, next_step)
+        finally:
+            with self._active_runs_lock:
+                self._active_runs.pop(id(run), None)
+
+    def _start_investigation(self,user_input,attached_path,attached,next_step="Hypothesis"):
         self._run_session_id = self.active_session_id
         self._investigation_running = True
-        event_obj = {
-                    "data": user_input,
-                    "type": "user",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "session_id": self._run_session_id,
-                }
-        self.runtime_state = self._runtime_snapshot()
-        self.chat_history.append({"role": "user", "content": json.dumps(event_obj, ensure_ascii=False)})
-        self.save_current_session()
-        self.problem_statenment = self.investigation.generateProblemStatement(
-            user_request=user_input,
-            model_name="qwen2.5-coder:3b"
-        )
-        print(self.problem_statenment,"\n")
-        self.problem_statenment = json.loads(self.problem_statenment)
+        try:
+            event_obj = {
+                        "data": user_input,
+                        "type": "user",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "session_id": self._run_session_id,
+                    }
+            self.runtime_state = self._runtime_snapshot()
+            self.chat_history.append({"role": "user", "content": json.dumps(event_obj, ensure_ascii=False)})
+            self.save_current_session()
+            self.problem_statenment = self.investigation.generateProblemStatement(
+                user_request=user_input,
+                model_name="qwen2.5-coder:3b"
+            )
+            print(self.problem_statenment,"\n")
+            self.problem_statenment = json.loads(self.problem_statenment)
 
-        self.sendEvent(
-            data=self.problem_statenment,
-            Data_type="Problem_Statement"
-        )
-        self.state = next_step
-        self.controller(next_step=next_step)
-        self._investigation_running = False
-        self._run_session_id = None
+            self.sendEvent(
+                data=self.problem_statenment,
+                Data_type="Problem_Statement"
+            )
+            self.state = next_step
+            self.controller(next_step=next_step)
+        finally:
+            self._investigation_running = False
+            self._run_session_id = None
         # Start the diagnosis loop after problem statement is identified
         
 

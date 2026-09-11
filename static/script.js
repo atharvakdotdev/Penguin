@@ -219,6 +219,16 @@ if (isChatPage) {
           }
         }
 
+        if (
+          event &&
+          event.type === 'testing_hypothesis' &&
+          event.data &&
+          Array.isArray(event.data.tests) &&
+          event.data.tests.length === 0
+        ) {
+          return;
+        }
+
         if (event && event.type && typeof window.handleInvestigationEvent === 'function') {
           window.handleInvestigationEvent(event);
         }
@@ -468,7 +478,6 @@ if (isChatPage) {
                 sidebar.classList.remove('is-session-mode');
                 sessionsOpen = false;
                 renderSessionList();
-                await window.pywebview.api.controller();
               }
             } catch (error) {
               addLogOutput(`Unable to open session: ${error.message || error}`, true);
@@ -735,7 +744,7 @@ if (isChatPage) {
                   const virtualBtn = document.createElement('button');
                   virtualBtn.className = 'btn-allow-command';
                   setTimeout(() => {
-                    executeCommand(virtualBtn, step.command, step.requires_sudo || false);
+                    executeCommand(virtualBtn, step.command, step.requires_sudo || false, step.command_id);
                   }, 300);
                 }
               } else {
@@ -746,7 +755,7 @@ if (isChatPage) {
                 mainBtn.className = 'btn-allow-command split-main';
                 mainBtn.textContent = '▶ Allow';
                 mainBtn.addEventListener('click', () => {
-                  executeCommand(mainBtn, step.command, step.requires_sudo || false);
+                  executeCommand(mainBtn, step.command, step.requires_sudo || false, step.command_id);
                 });
 
                 const toggleBtn = document.createElement('button');
@@ -766,7 +775,7 @@ if (isChatPage) {
                 optOnce.addEventListener('click', (e) => {
                   e.stopPropagation();
                   dropdown.classList.add('hidden');
-                  executeCommand(mainBtn, step.command, step.requires_sudo || false);
+                  executeCommand(mainBtn, step.command, step.requires_sudo || false, step.command_id);
                 });
 
                 const optAlways = document.createElement('div');
@@ -784,7 +793,7 @@ if (isChatPage) {
                       addLogOutput(`Failed to set Auto Allow mode: ${error.message || error}`, true);
                     }
                   }
-                  executeCommand(mainBtn, step.command, step.requires_sudo || false);
+                  executeCommand(mainBtn, step.command, step.requires_sudo || false, step.command_id);
                 });
 
                 dropdown.appendChild(optOnce);
@@ -919,7 +928,7 @@ if (isChatPage) {
       }
     }
 
-    async function executeCommand(button, command, useSudo) {
+    async function executeCommand(button, command, useSudo, commandId) {
       let commandCompleted = false;
       try {
         button.disabled = true;
@@ -939,7 +948,7 @@ if (isChatPage) {
           throw new Error('The desktop API is not available.');
         }
 
-        const result = await runApiCommand(command, useSudo);
+        const result = await runApiCommand(commandId || command, useSudo);
         commandCompleted = true;
         if (result && typeof result === 'object') {
           if (result.success) {
@@ -1183,13 +1192,6 @@ if (isChatPage) {
           pendingAttachment ? pendingAttachment.text : null
         );
 
-        if (
-          window.pywebview.api &&
-          typeof window.pywebview.api.save_current_session === 'function'
-        ) {
-          await window.pywebview.api.save_current_session();
-        }
-
       } catch (error) {
         investigation.text.textContent =
           `Sorry, the agent could not respond: ${error.message || error}`;
@@ -1244,7 +1246,9 @@ if (isChatPage) {
     }
 
     function handleProblemStatement(data) {
-      if (!currentInvestigation) return;
+      if (!currentInvestigation) {
+        currentInvestigation = createInvestigationPlaceholder('Understanding the problem', 'Thinking...');
+      }
 
       const payload = data && typeof data === 'object' && !Array.isArray(data) ? data : { problem_statement: data };
       const problemText = getDisplayTextFromPayload(payload.problem_statement ?? payload.issue ?? payload.summary ?? payload);
@@ -1308,7 +1312,8 @@ if (isChatPage) {
           steps: tests.map((test, index) => ({
             title: `Test ${index + 1}`,
             description: test && typeof test.rationale === 'string' ? test.rationale : 'Testing the current hypothesis.',
-            command: test && typeof test.command === 'string' ? test.command : ''
+            command: test && typeof test.command === 'string' ? test.command : '',
+            command_id: test && typeof test.command_id === 'string' ? test.command_id : null
           }))
         };
         currentInvestigation.text.innerHTML = '';
@@ -1455,10 +1460,10 @@ if (isChatPage) {
       if (!event?.type) return;
 
       if (
-        event.session_id !== null &&
-        event.session_id !== undefined &&
         activeSessionId !== null &&
-        String(event.session_id) !== String(activeSessionId)
+        (event.session_id === null ||
+          event.session_id === undefined ||
+          String(event.session_id) !== String(activeSessionId))
       ) {
         return;
       }
