@@ -493,7 +493,7 @@ if (isChatPage) {
       });
     }
 
-    async function loadAvailableModels(retries = 12) {
+    async function loadAvailableModels(retries = 40) {
       if (!modelSelect) {
         return;
       }
@@ -548,6 +548,9 @@ if (isChatPage) {
       } catch (error) {
         modelSelect.innerHTML = '<option>No models found</option>';
         addLogOutput(`Unable to load Ollama models: ${error.message || error}`, true);
+        if (retries > 0) {
+          setTimeout(() => loadAvailableModels(retries - 1), 500);
+        }
       }
     }
 
@@ -1647,7 +1650,8 @@ if (isChatPage) {
     });
 
     restoreCurrentSession();
-    window.addEventListener('load', loadAvailableModels);
+    window.addEventListener('load', () => loadAvailableModels());
+    window.addEventListener('pywebviewready', () => loadAvailableModels());
     setTimeout(loadAvailableModels, 100);
 
     document.querySelectorAll('.control-btn').forEach((btn) => {
@@ -1800,7 +1804,7 @@ if (isSettingsPage) {
       });
     });
 
-    window.addEventListener('load', loadAvailableModels);
+    window.addEventListener('load', () => loadAvailableModels());
     setTimeout(loadAvailableModels, 100);
   })();
 }

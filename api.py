@@ -645,7 +645,7 @@ class Api:
     def contradictionloop(self):
 
         self.contradistion_bool= self.investigation.CheckHypothesisContradiction(
-            model_name="qwen3:4b",
+            model_name=self.current_chat_model,
             command_outputs=self.result,
             hypothesis=self.hypothesis
         )
@@ -662,7 +662,7 @@ class Api:
         self.verification = self.investigation.verifiRemediation(
         problem_statement=self.problem_statenment,
         # facts=facts,
-        model_name="qwen3:4b"
+        model_name=self.current_chat_model
         )
         verification_result = self.run_command(
             self.verification["step"]["command"]
@@ -670,7 +670,7 @@ class Api:
         self.evaluation = self.investigation.verifiRemediation(
             problem_statement=self.problem_statenment,
             command_output=verification_result,
-            model_name="qwen3:4b"
+            model_name=self.current_chat_model
         )
         if self.evaluation["solved"]:
             self.state = "IssueResolved"
@@ -686,7 +686,7 @@ class Api:
         self.solution = self.investigation.generateSolution(
         problem_statement=self.problem_statenment,
         facts=self.facts,
-        model_name="qwen3:4b",
+        model_name=self.current_chat_model,
         relevant_command_outputs=self.command_outputs,hypothesis=self.hypothesis
         )
         self.sendEvent(
@@ -708,7 +708,7 @@ class Api:
     
 
     def UpdateHypothesis(self):
-        self.hypotheses = self.investigation.generateHypothesis(user_request=self.problem_statenment,model_name="qwen2.5-coder:3b",facts=self.facts,command_outputs=self.command_outputs)
+        self.hypotheses = self.investigation.generateHypothesis(user_request=self.problem_statenment,model_name=self.current_chat_model,facts=self.facts,command_outputs=self.command_outputs)
         print("Updated Hypotheses:")
         print(self.hypotheses)
         self.sendEvent(
@@ -731,7 +731,7 @@ class Api:
                     problem_statement=self.problem_statenment,
                     facts = self.facts,
                     command_outputs=self.command_outputs,
-                    model_name="qwen2.5-coder:3b"
+                    model_name=self.current_chat_model
                 )
         self.sendEvent(
                     data=self.facts,
@@ -744,7 +744,7 @@ class Api:
         self.controller(next_step=next_step)
 
     def GenerateHypothesis(self,next_step):
-        self.hypotheses = self.investigation.generateHypothesis(user_request=self.problem_statenment,model_name="qwen2.5-coder:3b")
+        self.hypotheses = self.investigation.generateHypothesis(user_request=self.problem_statenment,model_name=self.current_chat_model)
         
         self.sendEvent(
             data=self.hypotheses,
@@ -763,7 +763,7 @@ class Api:
             self.Testcommands = self.investigation.generateCommandsToTestHypothesis(
                 problem_statement=self.problem_statenment,
                 hypothesis=hypothesis,
-                model_name="qwen2.5-coder:3b"
+                model_name=self.current_chat_model
             )
             tests = self.Testcommands.get("tests", [])
             for test in tests:
@@ -834,7 +834,7 @@ class Api:
             self.save_current_session()
             self.problem_statenment = self.investigation.generateProblemStatement(
                 user_request=user_input,
-                model_name="qwen2.5-coder:3b"
+                model_name=self.current_chat_model
             )
             print(self.problem_statenment,"\n")
             self.problem_statenment = json.loads(self.problem_statenment)
