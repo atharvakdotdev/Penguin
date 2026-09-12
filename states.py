@@ -1196,9 +1196,6 @@ class InvestigationState:
         stream_completed = False
         try:
             for chunk in response_stream:
-                if stream_owner is not None and stream_owner._shutdown_event.is_set():
-                    raise RuntimeError("Ollama response stream cancelled.")
-
                 if isinstance(chunk, dict):
                     message = chunk.get("message", {})
                     content = message.get("content", "") if isinstance(message, dict) else ""
@@ -1211,6 +1208,12 @@ class InvestigationState:
                 if content:
                     content_parts.append(content)
 
+                if stream_owner is not None and stream_owner._shutdown_event.is_set():
+                    break
+
+            if stream_owner is not None and stream_owner._shutdown_event.is_set():
+                return {"message": {"content": "".join(content_parts)}}
+
             if not stream_completed:
                 raise RuntimeError("Ollama response stream ended before completion.")
 
@@ -1218,7 +1221,12 @@ class InvestigationState:
         finally:
             close = getattr(response_stream, "close", None)
             if callable(close):
-                close()
+                try:
+                    close()
+                except (RuntimeError, ValueError):
+                    # The stream may already be closing while shutdown races with the
+                    # generator loop. Treat this as a normal cancellation condition.
+                    pass
             if stream_owner is not None:
                 stream_owner._active_stream = None
 

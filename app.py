@@ -21,7 +21,7 @@ def main():
 
     api.windowobj = window
 
-    webview.start(gui='qt')
+    webview.start()
 
 
 if __name__ == "__main__":

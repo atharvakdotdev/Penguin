@@ -507,7 +507,14 @@ class Api:
             stream = getattr(run, "_active_stream", None)
             close = getattr(stream, "close", None)
             if callable(close):
-                close()
+                try:
+                    close()
+                except (RuntimeError, ValueError):
+                    # A stream can already be unwinding from the generator loop; a
+                    # shutdown should remain best-effort instead of crashing the UI.
+                    pass
+                finally:
+                    run._active_stream = None
 
         if active_runs:
             for run in active_runs:
