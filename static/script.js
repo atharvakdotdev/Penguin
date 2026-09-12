@@ -97,6 +97,7 @@ if (isChatPage) {
     let sessionsOpen = false;
     let autoAllowEnabled = false;
     let activeSessionId = null;
+    let isReplayingHistory = false;
     let chat_history = [];
     const displayedTerminalOutputs = new Set();
     window.chat_history = chat_history;
@@ -146,6 +147,7 @@ if (isChatPage) {
       chatMessages.innerHTML = '';
       chat_history = [];
       window.chat_history = chat_history;
+      renderHypotheses([]);
       renderPlanState(null);
     }
 
@@ -474,7 +476,9 @@ if (isChatPage) {
                 updateAutoAllowUI(result.auto_allow || runtimeState.auto_allow || false);
                 clearChatView();
                 clearTerminalView();
+                isReplayingHistory = true;
                 replayChatHistory(result.chat_history || runtimeState.chat_history || []);
+                isReplayingHistory = false;
                 renderTerminalHistory();
                 sidebar.classList.remove('is-session-mode');
                 sessionsOpen = false;
@@ -1500,7 +1504,7 @@ if (isChatPage) {
 
       if (!event?.type) return;
 
-      if (
+      if (!isReplayingHistory &&
         activeSessionId !== null &&
         (event.session_id === null ||
           event.session_id === undefined ||
@@ -1520,7 +1524,9 @@ if (isChatPage) {
           break;
         case "problem_statement":
           handleProblemStatement(event.data);
-          currentInvestigation = createInvestigationPlaceholder("Hypothesizing", "");
+          if (!isReplayingHistory) {
+            currentInvestigation = createInvestigationPlaceholder("Hypothesizing", "");
+          }
           break;
         case "hypotheses_started":
           if (currentInvestigation) {
@@ -1528,10 +1534,18 @@ if (isChatPage) {
           }
           break;
         case "hypotheses":
+          if (isReplayingHistory) {
+            currentInvestigation = createInvestigationPlaceholder("Hypotheses Generated", "");
+          }
           handleHypotheses(event.data);
-          currentInvestigation = createInvestigationPlaceholder("Testing Hypotheses", "");
+          if (!isReplayingHistory) {
+            currentInvestigation = createInvestigationPlaceholder("Testing Hypotheses", "");
+          }
           break;
         case "testing_hypothesis":
+          if (isReplayingHistory) {
+            currentInvestigation = createInvestigationPlaceholder("Testing Hypotheses", "");
+          }
           handleTestingHypothesis({
             ...(event.data || {}),
             _history_event_id: event.event_id,
@@ -1539,7 +1553,7 @@ if (isChatPage) {
           if (autoAllowEnabled) {
             currentInvestigation?.details?.remove();
             currentInvestigation = null;
-          } else {
+          } else if (!isReplayingHistory) {
             currentInvestigation = createInvestigationPlaceholder("Executing Tests", "");
           }
           break;
@@ -1557,8 +1571,13 @@ if (isChatPage) {
           });
           break;
         case "facts":
+          if (isReplayingHistory) {
+            currentInvestigation = createInvestigationPlaceholder("Facts Discovered", "");
+          }
           handleFacts(event.data);
-          currentInvestigation = createInvestigationPlaceholder("Generating Solution", "");
+          if (!isReplayingHistory) {
+            currentInvestigation = createInvestigationPlaceholder("Generating Solution", "");
+          }
           break;
         case "investigation_error":
           if (currentInvestigation) {
