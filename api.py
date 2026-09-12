@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+import ollama
 from ollama import chat
 
 from schemas import JSON_SCHEMA
@@ -45,6 +46,7 @@ class Api:
         self._active_runs = {}
         self._active_runs_lock = threading.Lock()
         self._pending_approvals = {}
+        self._shutdown_event = threading.Event()
         self.active_process = None
         self.investigation = InvestigationState()
         self.input_queue = queue.Queue()
@@ -358,21 +360,9 @@ class Api:
     def list_models(self):
         installed_models = []
         try:
-            result = subprocess.run(
-                ["ollama", "list"],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if result.returncode == 0:
-                for raw_line in result.stdout.splitlines():
-                    line = raw_line.strip()
-                    if not line or line.startswith("NAME"):
-                        continue
-                    parts = line.split()
-                    if parts:
-                        installed_models.append(parts[0])
-        except FileNotFoundError:
+            models = ollama.list()
+            installed_models = [model.model for model in models.models if model.model]
+        except Exception:
             installed_models = []
 
         if self.current_chat_model and self.current_chat_model not in installed_models:
@@ -409,7 +399,6 @@ class Api:
             "auto_allow": self.auto_allow,
             "permission_mode": "auto_confirm" if self.auto_allow else "ask_before_running",
         }
-
     def save_settings(self, payload=None):
         settings = payload or {}
         default_model = str(settings.get("default_model") or "").strip()
@@ -489,6 +478,11 @@ class Api:
         if not isinstance(command, str) or not command.strip():
             return {"success": False, "output": "", "error": "No command supplied", "return_code": -1}
 
+        approval = self._pending_approvals.get(command)
+        if approval is not None:
+            approval.set()
+            return {"success": True, "output": "", "error": "", "return_code": 0}
+
         with self._active_runs_lock:
             runs = list(self._active_runs.values())
 
@@ -499,6 +493,29 @@ class Api:
                 return {"success": True, "output": "", "error": "", "return_code": 0}
 
         return {"success": False, "output": "", "error": "Command is no longer pending", "return_code": -1}
+
+    def stop_agent(self):
+        """Stop active generation or approval waits and persist current progress."""
+        self._shutdown_event.set()
+        with self._active_runs_lock:
+            active_runs = list(self._active_runs.values())
+
+        for run in active_runs:
+            run._shutdown_event.set()
+            for approval in run._pending_approvals.values():
+                approval.set()
+            stream = getattr(run, "_active_stream", None)
+            close = getattr(stream, "close", None)
+            if callable(close):
+                close()
+
+        if active_runs:
+            for run in active_runs:
+                run._investigation_running = False
+                run.save_current_session()
+        else:
+            self.save_current_session()
+        return {"status": "stopped"}
     def _record_command(self, command, success, output):
         executions = self.investigating_obj.setdefault("executed_commands", [])
         execution = {
@@ -545,7 +562,17 @@ class Api:
         approval = None
         if not self.auto_allow:
             approval = self._pending_approvals.setdefault(command_id, threading.Event())
-            approval.wait()
+            try:
+                while not approval.wait(timeout=0.5):
+                    if self._shutdown_event.is_set():
+                        return {
+                            "success": False,
+                            "output": "",
+                            "error": "Command approval cancelled because the investigation stopped.",
+                            "return_code": -1,
+                        }
+            finally:
+                self._pending_approvals.pop(command_id, None)
 
         try:
             if use_sudo:
@@ -643,6 +670,7 @@ class Api:
 
             
     def contradictionloop(self):
+        print(f"[model] CheckHypothesisContradiction: {self.current_chat_model}", flush=True)
 
         self.contradistion_bool= self.investigation.CheckHypothesisContradiction(
             model_name=self.current_chat_model,
@@ -659,6 +687,7 @@ class Api:
 
 
     def verificationloop(self):
+        print(f"[model] Verification command: {self.current_chat_model}", flush=True)
         self.verification = self.investigation.verifiRemediation(
         problem_statement=self.problem_statenment,
         # facts=facts,
@@ -667,6 +696,7 @@ class Api:
         verification_result = self.run_command(
             self.verification["step"]["command"]
         )
+        print(f"[model] Verification evaluator: {self.current_chat_model}", flush=True)
         self.evaluation = self.investigation.verifiRemediation(
             problem_statement=self.problem_statenment,
             command_output=verification_result,
@@ -683,6 +713,7 @@ class Api:
         print("The issue has been resolved.")
 
     def solver(self):
+        print(f"[model] Solve: {self.current_chat_model}", flush=True)
         self.solution = self.investigation.generateSolution(
         problem_statement=self.problem_statenment,
         facts=self.facts,
@@ -708,6 +739,7 @@ class Api:
     
 
     def UpdateHypothesis(self):
+        print(f"[model] UpdateHypothesis: {self.current_chat_model}", flush=True)
         self.hypotheses = self.investigation.generateHypothesis(user_request=self.problem_statenment,model_name=self.current_chat_model,facts=self.facts,command_outputs=self.command_outputs)
         print("Updated Hypotheses:")
         print(self.hypotheses)
@@ -727,6 +759,7 @@ class Api:
                 self.controller(next_step="Hypothesis")
         
     def GenerateFacts(self,next_step):
+        print(f"[model] Facts: {self.current_chat_model}", flush=True)
         self.facts = self.investigation.generateFacts(
                     problem_statement=self.problem_statenment,
                     facts = self.facts,
@@ -744,6 +777,7 @@ class Api:
         self.controller(next_step=next_step)
 
     def GenerateHypothesis(self,next_step):
+        print(f"[model] Hypothesis: {self.current_chat_model}", flush=True)
         self.hypotheses = self.investigation.generateHypothesis(user_request=self.problem_statenment,model_name=self.current_chat_model)
         
         self.sendEvent(
@@ -800,6 +834,7 @@ class Api:
         self.controller(next_step=next_step)
 
     def StartInvetigation(self,user_input,attached_path,attached,next_step="Hypothesis"):
+        self._shutdown_event.clear()
         run = Api(self.windowobj)
         run.session_manager = self.session_manager
         run.default_model = self.default_model
@@ -809,6 +844,9 @@ class Api:
         run.active_session_id = self.active_session_id
         run._active_runs = self._active_runs
         run._active_runs_lock = self._active_runs_lock
+        run._pending_approvals = self._pending_approvals
+        run._shutdown_event = self._shutdown_event
+        run.investigation._stream_owner = run
 
         with self._active_runs_lock:
             self._active_runs[id(run)] = run
@@ -832,6 +870,7 @@ class Api:
             self.runtime_state = self._runtime_snapshot()
             self.chat_history.append({"role": "user", "content": json.dumps(event_obj, ensure_ascii=False)})
             self.save_current_session()
+            print(f"[model] ProblemStatement: {self.current_chat_model}", flush=True)
             self.problem_statenment = self.investigation.generateProblemStatement(
                 user_request=user_input,
                 model_name=self.current_chat_model
@@ -876,6 +915,3 @@ class Api:
 
         elif self.state == "CheckHypothesisContradiction":
             self.contradictionloop()
-            
-
-        

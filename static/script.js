@@ -75,6 +75,7 @@ if (isChatPage) {
     const attachmentStatus = document.getElementById('attachmentStatus');
     const attachmentLabel = document.getElementById('attachmentLabel');
     const attachmentClear = document.getElementById('attachmentClear');
+    const stopAgentButton = document.getElementById('stopAgentButton');
     const terminalWindow = document.querySelector('.terminal-window');
     const sidebar = document.querySelector('.sidebar');
     const sidebarToggle = document.getElementById('sidebarToggle');
@@ -493,18 +494,28 @@ if (isChatPage) {
       });
     }
 
+    let modelsLoadInProgress = false;
+
     async function loadAvailableModels(retries = 40) {
       if (!modelSelect) {
+        return;
+      }
+
+      if (modelsLoadInProgress) {
         return;
       }
 
       if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.list_models !== 'function') {
         if (retries > 0) {
           setTimeout(() => loadAvailableModels(retries - 1), 250);
+        } else {
+          modelSelect.innerHTML = '<option value="">Desktop API unavailable</option>';
+          modelSelect.disabled = true;
         }
         return;
       }
 
+      modelsLoadInProgress = true;
       modelSelect.innerHTML = '<option>Loading models...</option>';
 
       try {
@@ -546,11 +557,10 @@ if (isChatPage) {
           updateAutoAllowUI(Boolean(settings && settings.auto_allow));
         }
       } catch (error) {
-        modelSelect.innerHTML = '<option>No models found</option>';
+        modelSelect.innerHTML = '<option value="">Unable to load models</option>';
         addLogOutput(`Unable to load Ollama models: ${error.message || error}`, true);
-        if (retries > 0) {
-          setTimeout(() => loadAvailableModels(retries - 1), 500);
-        }
+      } finally {
+        modelsLoadInProgress = false;
       }
     }
 
@@ -1152,6 +1162,34 @@ if (isChatPage) {
         attachLogButton.disabled = isBusy;
         attachLogButton.style.opacity = isBusy ? '0.6' : '1';
       }
+      if (stopAgentButton) {
+        stopAgentButton.disabled = !isBusy;
+        stopAgentButton.style.opacity = isBusy ? '1' : '0.55';
+      }
+    }
+
+    async function stopAgent() {
+      if (!stopAgentButton || stopAgentButton.disabled) {
+        return;
+      }
+
+      stopAgentButton.disabled = true;
+      stopAgentButton.textContent = 'Stopping...';
+      try {
+        if (!window.pywebview?.api || typeof window.pywebview.api.stop_agent !== 'function') {
+          throw new Error('The desktop API is not available.');
+        }
+        await window.pywebview.api.stop_agent();
+        if (currentInvestigation) {
+          currentInvestigation.text.textContent = 'Agent stopped. Progress saved.';
+          updateInvestigationTitle(currentInvestigation, 'Agent Stopped');
+        }
+      } catch (error) {
+        addLogOutput(`Unable to stop agent: ${error.message || error}`, true);
+      } finally {
+        setBusy(false);
+        stopAgentButton.textContent = '⏹ Stop Agent';
+      }
     }
 
     async function sendMessage() {
@@ -1574,6 +1612,12 @@ if (isChatPage) {
 
     sendButton.addEventListener('click', sendMessage);
 
+    if (stopAgentButton) {
+      stopAgentButton.addEventListener('click', stopAgent);
+      stopAgentButton.disabled = true;
+      stopAgentButton.style.opacity = '0.55';
+    }
+
     if (sidebarToggle) {
       sidebarToggle.addEventListener('click', toggleSidebar);
     }
@@ -1649,7 +1693,6 @@ if (isChatPage) {
       }
     });
 
-    restoreCurrentSession();
     window.addEventListener('load', () => loadAvailableModels());
     window.addEventListener('pywebviewready', () => loadAvailableModels());
     setTimeout(loadAvailableModels, 100);

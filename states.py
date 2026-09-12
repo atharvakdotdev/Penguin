@@ -1187,6 +1187,41 @@ class InvestigationState:
         print(continue_)
         return state, continue_
 
+    def _stream_chat_response(self, **kwargs):
+        stream_owner = getattr(self, "_stream_owner", None)
+        response_stream = chat(**kwargs, stream=True)
+        if stream_owner is not None:
+            stream_owner._active_stream = response_stream
+        content_parts = []
+        stream_completed = False
+        try:
+            for chunk in response_stream:
+                if stream_owner is not None and stream_owner._shutdown_event.is_set():
+                    raise RuntimeError("Ollama response stream cancelled.")
+
+                if isinstance(chunk, dict):
+                    message = chunk.get("message", {})
+                    content = message.get("content", "") if isinstance(message, dict) else ""
+                    stream_completed = stream_completed or bool(chunk.get("done", False))
+                else:
+                    message = getattr(chunk, "message", None)
+                    content = getattr(message, "content", "")
+                    stream_completed = stream_completed or bool(getattr(chunk, "done", False))
+
+                if content:
+                    content_parts.append(content)
+
+            if not stream_completed:
+                raise RuntimeError("Ollama response stream ended before completion.")
+
+            return {"message": {"content": "".join(content_parts)}}
+        finally:
+            close = getattr(response_stream, "close", None)
+            if callable(close):
+                close()
+            if stream_owner is not None:
+                stream_owner._active_stream = None
+
     # def apply_controller_transitions(self, parsed, current_state):
     #     print(parsed)
     #     return current_state
@@ -1194,11 +1229,10 @@ class InvestigationState:
         # This function generates a problem statement based on the user request
         msg=[{"role": "system", "content": STATE_PROMPTS["understand"]},
              {"role": "user", "content": str(user_request).strip()}]
-        response = chat(
+        response = self._stream_chat_response(
                             model=model_name,
                             messages=msg,
                             format=understand_schema,
-                            stream=False,
                             think=False,
                             keep_alive=-1,
                             options = {
@@ -1217,11 +1251,10 @@ class InvestigationState:
             msg=[{"role": "system", "content": STATE_PROMPTS["updatehypothesis"] if facts else STATE_PROMPTS["hypothesis"]},
                  {"role": "system", "content":f"Facts:{facts}, list of commands executed previously: {command_outputs}"},
                  {"role": "user", "content": str(user_request).strip()}]
-            response = chat(
+            response = self._stream_chat_response(
                                 model=model_name,
                                 messages=msg,
                                 format=hypothesis_schema,
-                                stream=False,
                                 think=False,
                                 keep_alive=-1,
                                 options = {
@@ -1270,11 +1303,10 @@ class InvestigationState:
             }
         ]
 
-        response = chat(
+        response = self._stream_chat_response(
             model=model_name,
             messages=msg,
             format=command_test_schema,
-            stream=False,
             think=False,
             keep_alive=-1,
             options={
@@ -1307,11 +1339,10 @@ class InvestigationState:
             
         ]
 
-        response = chat(
+        response = self._stream_chat_response(
             model=model_name,
             messages=msg,
             format=facts_schema,
-            stream=False,
             think=False,
             keep_alive=-1,
             options={
@@ -1365,11 +1396,10 @@ class InvestigationState:
                 }
             ]
     
-            response = chat(
+            response = self._stream_chat_response(
                 model=model_name,
                 messages=msg,
                 format=solver_scheme,
-                stream=False,
                 think=False,
                 keep_alive=-1,
                 options={
@@ -1402,11 +1432,10 @@ class InvestigationState:
                 
             ]
     
-            response = chat(
+            response = self._stream_chat_response(
                 model=model_name,
                 messages=msg,
                 format=verification_scheme if command_outputs else verification2_scheme,
-                stream=False,
                 think=False,
                 keep_alive=-1,
                 options={
@@ -1439,11 +1468,10 @@ class InvestigationState:
                     
                 ]
         
-                response = chat(
+                response = self._stream_chat_response(
                     model=model_name,
                     messages=msg,
                     format=check_diagnosis_scheme,
-                    stream=False,
                     think=False,
                     keep_alive=-1,
                     options={
