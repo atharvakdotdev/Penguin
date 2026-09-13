@@ -156,34 +156,8 @@ if (isChatPage) {
       displayedTerminalOutputs.clear();
     }
 
-    function isControllerPrompt(text) {
-      if (typeof text !== 'string') {
-        return false;
-      }
-      const cleaned = text.trim();
-      return cleaned.startsWith('The requested command has finished.') && cleaned.includes('Choose the next diagnostic step based on the above output.');
-    }
 
-    function getExecutedCommandSet() {
-      const appliedState = window.investigating_obj || {};
-      const executions = Array.isArray(appliedState.executed_commands) ? appliedState.executed_commands : [];
-      const commands = new Set();
-      executions.forEach((entry) => {
-        if (
-          entry &&
-          typeof entry.command === 'string' &&
-          entry.command.trim() &&
-          (
-            typeof entry.success === 'boolean' ||
-            typeof entry.timestamp === 'string' ||
-            (typeof entry.output === 'string' && entry.output.trim() !== '')
-          )
-        ) {
-          commands.add(entry.command.trim());
-        }
-      });
-      return commands;
-    }
+
 
     function renderTerminalHistory() {
       clearTerminalView();
@@ -483,6 +457,7 @@ if (isChatPage) {
                 sidebar.classList.remove('is-session-mode');
                 sessionsOpen = false;
                 renderSessionList();
+                window.pywebview.api.controller()
               }
             } catch (error) {
               addLogOutput(`Unable to open session: ${error.message || error}`, true);
@@ -920,30 +895,6 @@ if (isChatPage) {
       }
     }
 
-    async function proceedToNextStep() {
-      if (awaitingNextStep && currentCommand) {
-        awaitingNextStep = false;
-        setBusy(true);
-        const agentMessage = appendMessage('agent', 'Analyzing...');
-        addLogOutput('Agent is analyzing the latest command result.');
-
-        try {
-          if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.respond !== 'function') {
-            throw new Error('The desktop API is not available.');
-          }
-
-          const prompt = pendingContextPrompt || 'continue with next step';
-          pendingContextPrompt = null;
-          const response = await window.pywebview.api.respond(prompt);
-          await processAgentResponse(agentMessage, response);
-        } catch (error) {
-          agentMessage.querySelector('.message-content').textContent = `Error: ${error.message || error}`;
-        } finally {
-          setBusy(false);
-          chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-      }
-    }
 
     async function executeCommand(button, command, useSudo, commandId) {
       let commandCompleted = false;
@@ -1280,16 +1231,7 @@ if (isChatPage) {
       investigation.summary.classList.add('identified');
     }
 
-    function formatHypotheses(hypothesesData) {
-      if (!hypothesesData || !hypothesesData.hypotheses || !Array.isArray(hypothesesData.hypotheses)) {
-        return "No hypotheses generated.";
-      }
-
-      return hypothesesData.hypotheses
-        .map((hyp, idx) => `${idx + 1}. ${hyp.hypothesis || hyp}\n   Confidence: ${hyp.confidence || 'N/A'}`)
-        .join("\n\n");
-    }
-
+ 
     function handleProblemStatement(data) {
       if (!currentInvestigation) {
         currentInvestigation = createInvestigationPlaceholder('Understanding the problem', 'Thinking...');
@@ -1311,16 +1253,7 @@ if (isChatPage) {
       updateInvestigationTitle(currentInvestigation, "Hypotheses Generated");
     }
 
-    function formatTestCommands(testData) {
-      if (!testData || !testData.tests || !Array.isArray(testData.tests)) {
-        return "No test commands generated.";
-      }
-
-      return testData.tests
-        .map((test, idx) => `${idx + 1}. ${test.command || test}\n   Rationale: ${test.rationale || 'Testing'}`)
-        .join("\n\n");
-    }
-
+ 
     function handleTestingHypothesis(data) {
       if (!currentInvestigation) return;
 
@@ -1395,20 +1328,6 @@ if (isChatPage) {
       });
     }
 
-    function formatCommandOutputs(outputs) {
-      if (!outputs || !Array.isArray(outputs)) {
-        return "No command outputs yet.";
-      }
-
-      return outputs
-        .map((output, idx) => {
-          const cmd = output.command || output;
-          const success = output.success ? "✓ Success" : "✗ Failed";
-          const out = output.output || output;
-          return `${idx + 1}. ${cmd}\n   Status: ${success}\n   Output: ${out}`;
-        })
-        .join("\n\n");
-    }
 
     function handleCommandOutputs(data) {
       if (Array.isArray(data)) {

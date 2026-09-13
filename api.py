@@ -692,7 +692,6 @@ class Api:
             self.state = "Solve"
             self.controller(next_step="Solve")
 
-
     def verificationloop(self):
         print(f"[model] Verification command: {self.current_chat_model}", flush=True)
         self.verification = self.investigation.verifiRemediation(
@@ -716,6 +715,7 @@ class Api:
         else:   
             self.state = "Solve"
             self.controller(next_step="Solve")
+
     def issueResolved(self):
         print("The issue has been resolved.")
 
@@ -744,7 +744,6 @@ class Api:
             self.state = "CheckHypothesisContradiction"
             self.controller(next_step="CheckHypothesisContradiction")
     
-
     def UpdateHypothesis(self):
         print(f"[model] UpdateHypothesis: {self.current_chat_model}", flush=True)
         self.hypotheses = self.investigation.generateHypothesis(user_request=self.problem_statenment,model_name=self.current_chat_model,facts=self.facts,command_outputs=self.command_outputs)
@@ -896,7 +895,6 @@ class Api:
             self._run_session_id = None
         # Start the diagnosis loop after problem statement is identified
         
-
     def controller(self,user_input="",attached_path="",attached="",next_step="ProblemStatement"):
 
         if self.state == "ProblemStatement":
