@@ -147,6 +147,7 @@ if (isChatPage) {
       chatMessages.innerHTML = '';
       chat_history = [];
       window.chat_history = chat_history;
+      currentInvestigation = null;
       renderHypotheses([]);
       renderPlanState(null);
     }
