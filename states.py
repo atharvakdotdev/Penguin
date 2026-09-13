@@ -846,7 +846,47 @@ Your only job is to determine whether the **original user-reported problem is re
 ```text
 {{command_output}}
 ```
+## INTERPRETING VERIFICATION RESULTS
 
+The verification command has already been executed.
+
+The command output may be represented as an object containing:
+
+- success: whether the command executed successfully
+- output: stdout produced by the command
+- error: stderr produced by the command
+- return_code: process exit code
+
+You must interpret these fields as evidence.
+
+A command can successfully verify a condition even when `output` is empty.
+
+For example:
+
+Original problem:
+"schedule.txt does not exist."
+
+Verification command:
+"cat schedule.txt"
+
+Verification result:
+{
+  "success": true,
+  "output": "",
+  "error": "",
+  "return_code": 0
+}
+
+This is sufficient evidence that schedule.txt exists and can be read.
+Therefore the correct result is:
+
+{
+  "solved": true
+}
+
+Do NOT interpret an empty `output` as failure by itself.
+
+A return_code of 0 means the command completed successfully. However, successful execution alone does not automatically mean the original problem is solved; determine what the command actually verifies.
 ## TASK
 
 Determine whether the original problem is resolved.
@@ -861,10 +901,17 @@ Return:
 1. Evaluate **only** the verification command output.
 2. Do not generate or suggest commands.
 3. Do not propose a remediation.
-4. Do not diagnose the underlying cause.
-5. Do not question the confirmed diagnosis.
-6. Do not infer success merely because a previous remediation command succeeded.
-7. If the output is ambiguous or insufficient to prove the problem is fixed, return `false`.
+4. If the verification output directly demonstrates that the condition described in the original problem is now satisfied, return true.
+
+5. A successful verification may be demonstrated by:
+   - the expected file, directory, process, setting, or resource being present;
+   - the expected command producing the expected result;
+   - an error that was previously reported no longer appearing;
+   - any other output that directly confirms the original problem's stated condition is satisfied.
+
+6. Do not require the verification output to literally say "fixed", "solved", or "success". Interpret what the output directly demonstrates.
+
+7. For example, if the original problem says a file does not exist and the verification output from `ls -l schedule.txt` shows `schedule.txt`, this is sufficient evidence that the problem is resolved and must return true.
 8. The decision concerns the **original problem**, not whether the remediation command executed successfully.
 9. Return only a boolean value.
 
@@ -885,7 +932,40 @@ or:
   "solved": false
 }
 ```
+## DECISION RULE
 
+Compare the verification result against the ORIGINAL PROBLEM.
+
+The verification result is evidence about the current state of the system.
+
+IMPORTANT:
+- Do not treat an empty file as a missing file.
+- Do not treat file size 0 as evidence that a file does not exist.
+- If `ls` or `ls -l` successfully lists the file named in the original problem, the file exists.
+- If `cat <file>` returns return_code 0, the file exists and was readable.
+- `return_code: 0` means the command completed successfully.
+- An empty stdout does NOT mean verification failed.
+- An empty file does NOT mean verification failed unless the original problem specifically says the file should contain something.
+
+EXAMPLE:
+
+Original problem:
+"I created schedule.txt but when I run ls -l schedule.txt I get command/file not found."
+
+Verification result:
+{
+  "success": true,
+  "output": "-rw-rw-r-- 1 user user 0 Sep 13 19:38 schedule.txt",
+  "error": "",
+  "return_code": 0
+}
+
+The file exists. Its size being 0 is irrelevant because the problem was its existence.
+
+Return:
+{
+  "solved": true
+}
 No additional fields. No explanation.
 """,
 "CheckHypothesisContradiction": """# CHECK DIAGNOSIS
@@ -1153,7 +1233,7 @@ class InvestigationState:
 
                 if stream_owner is not None and stream_owner._shutdown_event.is_set():
                     break
-                print(chunk)
+                # print(chunk)
 
             if stream_owner is not None and stream_owner._shutdown_event.is_set():
                 return {"message": {"content": "".join(content_parts)}}
@@ -1406,6 +1486,127 @@ class InvestigationState:
             )
     
             return json.loads(content)
+
+    def verifi(self, problem_statement, model_name, command_outputs=None):
+
+        prompt = f"""
+    # VERIFICATION EVALUATOR
+
+    You are the Verification Evaluator.
+
+    Your only job is to determine whether the original user-reported problem
+    is resolved based exclusively on the verification command result.
+
+    ## ORIGINAL PROBLEM
+
+    {problem_statement}
+
+    ## VERIFICATION COMMAND RESULT
+
+    {command_outputs}
+
+    ## INTERPRETATION
+
+    The verification result may contain:
+
+    - success: whether the command executed successfully
+    - output: stdout
+    - error: stderr
+    - return_code: process exit code
+
+    Interpret the result as evidence about the original problem.
+
+    IMPORTANT:
+
+    - A successful command can have empty stdout.
+    - Empty stdout does NOT mean failure.
+    - return_code 0 means the command completed successfully.
+    - If `cat <file>` returns return_code 0 with no error, the file exists
+    and was successfully opened/read.
+    - A file having size 0 does NOT mean that the file does not exist.
+    - If `ls -l schedule.txt` successfully lists schedule.txt, then
+    schedule.txt exists.
+
+    ## EXAMPLE
+
+    Original problem:
+
+    schedule.txt does not exist.
+
+    Verification result:
+
+    {{
+    "success": true,
+    "output": "",
+    "error": "",
+    "return_code": 0
+    }}
+
+    This proves that schedule.txt exists and is readable.
+
+    Therefore:
+
+    {{
+    "solved": true
+    }}
+
+    ## TASK
+
+    Return true if the verification result provides sufficient evidence that
+    the original problem is resolved.
+
+    Return false if:
+    - the original problem still exists, OR
+    - the verification result does not provide sufficient evidence.
+
+    Do not diagnose the cause.
+    Do not suggest commands.
+    Do not propose remediation.
+
+    Return ONLY this JSON:
+
+    {{
+    "solved": true
+    }}
+
+    or:
+
+    {{
+    "solved": false
+    }}
+    """
+
+        msg = [
+            {
+                "role": "system",
+                "content": prompt
+            }
+        ]
+
+        response = self._stream_chat_response(
+            model=model_name,
+            messages=msg,
+            format=verification2_scheme,
+            think=False,
+            keep_alive=-1,
+            options={
+                "num_thread": 4
+            }
+        )
+
+        content = (
+            response.get("message", {}).get("content", "")
+            if isinstance(response, dict)
+            else getattr(
+                getattr(response, "message", None),
+                "content",
+                ""
+            )
+        )
+
+        return json.loads(content)
+
+
     def CheckHypothesisContradiction(self, model_name, command_outputs=[],hypothesis=[]):
                 
                 msg = [

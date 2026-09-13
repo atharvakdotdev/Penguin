@@ -1172,7 +1172,7 @@ if (isChatPage) {
       // Create investigation placeholder immediately
       currentInvestigation = createInvestigationPlaceholder(
         'Understanding the problem',
-        'Thinking...'
+        ''
       );
 
       chatInput.value = '';
@@ -1204,7 +1204,7 @@ if (isChatPage) {
         chatMessages.scrollTop = chatMessages.scrollHeight;
       }
     }
-    function createInvestigationPlaceholder(title, initialText = "Thinking...") {
+    function createInvestigationPlaceholder(title, initialText = "") {
       const message = appendMessage("agent", "");
       const content = message.querySelector(".message-content");
 
@@ -1236,7 +1236,7 @@ if (isChatPage) {
       investigation.summary.classList.add('identified');
     }
 
- 
+
     function handleProblemStatement(data) {
       if (!currentInvestigation) {
         currentInvestigation = createInvestigationPlaceholder('Understanding the problem', '');
@@ -1258,7 +1258,7 @@ if (isChatPage) {
       updateInvestigationTitle(currentInvestigation, "Hypotheses Generated");
     }
 
- 
+
     function handleTestingHypothesis(data) {
       if (!currentInvestigation) return;
 
@@ -1375,21 +1375,61 @@ if (isChatPage) {
         .join('\n\n');
     }
 
-    function handleSolution(data) {
-      if (!currentInvestigation) return;
+    function handleVerification(data) {
+
 
       const payload = data && typeof data === 'object' && !Array.isArray(data) ? data : { step: { command: '', rationale: getDisplayTextFromPayload(data) } };
-      const step = payload.step && typeof payload.step === 'object' ? payload.step : {};
+      const step = payload && typeof payload === 'object' && payload.step && typeof payload.step === 'object'
+        ? payload.step
+        : (payload && typeof payload === 'object' ? payload : {});
       const command = typeof step.command === 'string' ? step.command : '';
+      const description = typeof step.rationale === 'string'
+        ? step.rationale
+        : (typeof step.description === 'string' ? step.description : (typeof step.reason === 'string' ? step.reason : 'Review and approve the verification command to validate the fix.'));
 
       if (command) {
         const response = {
           steps: [{
-            title: 'Proposed Solution',
-            description: typeof step.rationale === 'string'
-              ? step.rationale
-              : (typeof step.reason === 'string' ? step.reason : 'Review and approve the recommended remediation command.'),
+            title: step.title || 'Verification Command',
+            description,
             command,
+            command_id: typeof step.command_id === 'string' ? step.command_id : null,
+            requires_sudo: Boolean(step.requires_sudo || payload.requires_sudo),
+          }]
+        };
+
+        currentInvestigation.text.innerHTML = '';
+        currentInvestigation.details.dataset.pendingCommands = '1';
+        populateAgentContent(currentInvestigation.text, response);
+        updateInvestigationTitle(currentInvestigation, 'Verify Fix');
+        return;
+      }
+
+      currentInvestigation.text.textContent = 'No verification command generated.';
+      updateInvestigationTitle(currentInvestigation, 'Verification');
+    }
+
+    function handleSolution(data) {
+      if (!currentInvestigation) {
+        currentInvestigation = createInvestigationPlaceholder('Review Solution', '');
+      }
+
+      const payload = data && typeof data === 'object' && !Array.isArray(data) ? data : { step: { command: '', rationale: getDisplayTextFromPayload(data) } };
+      const step = payload && typeof payload === 'object' && payload.step && typeof payload.step === 'object'
+        ? payload.step
+        : (payload && typeof payload === 'object' ? payload : {});
+      const command = typeof step.command === 'string' ? step.command : '';
+      const description = typeof step.rationale === 'string'
+        ? step.rationale
+        : (typeof step.description === 'string' ? step.description : (typeof step.reason === 'string' ? step.reason : 'Review and approve the recommended remediation command.'));
+
+      if (command) {
+        const response = {
+          steps: [{
+            title: step.title || 'Proposed Solution',
+            description,
+            command,
+            command_id: typeof step.command_id === 'string' ? step.command_id : null,
             requires_sudo: Boolean(step.requires_sudo || payload.requires_sudo),
           }]
         };
@@ -1403,6 +1443,19 @@ if (isChatPage) {
 
       currentInvestigation.text.textContent = formatSolution(payload);
       updateInvestigationTitle(currentInvestigation, 'Proposed Solution');
+    }
+
+    function handleIssueResolved(data) {
+      if (!currentInvestigation) {
+        currentInvestigation = createInvestigationPlaceholder('Issue Resolved', '');
+      }
+
+      const payload = data && typeof data === 'object' ? data : { message: 'The issue has been resolved.' };
+      const message = typeof payload.message === 'string' ? payload.message : 'The issue has been resolved.';
+      const summary = payload.summary && typeof payload.summary === 'object' ? formatSolution(payload.summary) : '';
+
+      currentInvestigation.text.textContent = summary || message;
+      updateInvestigationTitle(currentInvestigation, 'Issue Resolved');
     }
 
     function formatFacts(factsData) {
@@ -1457,7 +1510,7 @@ if (isChatPage) {
           break;
         case "hypotheses_started":
           if (currentInvestigation) {
-            currentInvestigation.text.textContent = event.data?.message || 'Generating hypotheses...';
+            currentInvestigation.text.textContent = event.data?.message || 'Hypothesizing';
           }
           break;
         case "hypotheses":
@@ -1477,11 +1530,14 @@ if (isChatPage) {
             ...(event.data || {}),
             _history_event_id: event.event_id,
           });
-          if (autoAllowEnabled) {
-            currentInvestigation?.details?.remove();
-            currentInvestigation = null;
-          } else if (!isReplayingHistory) {
-            currentInvestigation = createInvestigationPlaceholder("Executing Tests", "");
+          if (!isReplayingHistory) {
+            currentInvestigation = currentInvestigation || createInvestigationPlaceholder("Executing Tests", "");
+            if (autoAllowEnabled) {
+              currentInvestigation.text.textContent = 'Running diagnostic tests...';
+              updateInvestigationTitle(currentInvestigation, 'Executing Tests');
+            } else {
+              currentInvestigation = createInvestigationPlaceholder("Executing Tests", "");
+            }
           }
           break;
         case "hypothesis_tested":
@@ -1491,11 +1547,45 @@ if (isChatPage) {
           handleCommandOutputs(event.data);
           break;
         case "solution":
+           if (!isReplayingHistory) {
+            currentInvestigation = createInvestigationPlaceholder('solving', '');
+          }
+
           handleSolution({
             ...(event.data || {}),
             _history_event_id: event.event_id,
             _history_command_id: event.data?.step?.command_id || null,
           });
+          // if (!isReplayingHistory) {
+          //   currentInvestigation = currentInvestigation || createInvestigationPlaceholder("Executing Tests", "");
+          //   if (autoAllowEnabled) {
+          //     currentInvestigation.text.textContent = 'sds diagnostic tests...';
+          //     updateInvestigationTitle(currentInvestigation, 'sdsd Tests');
+          //   } else {
+          //     currentInvestigation = createInvestigationPlaceholder("sd Tests", "");
+          //   }
+          // }
+          break;
+        case "verification":
+          if (!isReplayingHistory) {
+            currentInvestigation = createInvestigationPlaceholder('Verify Fix', '');
+          }
+
+          handleVerification({
+            ...(event.data || {}),
+            _history_event_id: event.event_id,
+            _history_command_id: event.data?.step?.command_id || null,
+          });
+          // if (!isReplayingHistory) {
+          //   currentInvestigation = currentInvestigation || createInvestigationPlaceholder("Executing Tests", "");
+          //   if (autoAllowEnabled) {
+          //     currentInvestigation.text.textContent = 'Verifing the fix';
+          //     updateInvestigationTitle(currentInvestigation, 'Verify Fix');
+          //   } 
+          // }
+          break;
+        case "issue_resolved":
+          handleIssueResolved(event.data);
           break;
         case "facts":
           if (isReplayingHistory) {

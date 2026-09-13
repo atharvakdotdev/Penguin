@@ -500,6 +500,7 @@ class Api:
     def run_command_flag(self, command, use_sudo=False):
         """Approve a command that is already waiting in the investigation loop."""
         if not isinstance(command, str) or not command.strip():
+            print('no command supplied',command)
             return {"success": False, "output": "", "error": "No command supplied", "return_code": -1}
 
         if self._shutdown_event.is_set():
@@ -520,7 +521,7 @@ class Api:
             if approval is not None:
                 approval.set()
                 return {"success": True, "output": "", "error": "", "return_code": 0}
-
+        print('command is no longer pending',command)
         return {"success": False, "output": "", "error": "Command is no longer pending", "return_code": -1}
 
     def stop_agent(self):
@@ -725,30 +726,30 @@ class Api:
             model_name=self.current_chat_model,
             command_outputs=self.command_outputs,
         )
-
-        if not isinstance(self.verification, dict):
-            self.state = "Solve"
-            self.controller(next_step="Solve")
-            return
-
+        print(self.verification)
         step = self.verification.get("step") if isinstance(self.verification, dict) else None
-        if not isinstance(step, dict) or not isinstance(step.get("command"), str) or not step["command"].strip():
-            self.evaluation = self.verification
-            if self.evaluation.get("solved") is True:
-                self.state = "IssueResolved"
-                self.controller(next_step="IssueResolved")
-            else:
-                self.state = "Solve"
-                self.controller(next_step="Solve")
-            return
 
-        verification_result = self.run_command(step["command"])
+        if isinstance(step, dict):
+            step.setdefault("command_id", str(uuid4()))
+            if not self.auto_allow:
+                self._pending_approvals.setdefault(step["command_id"], threading.Event())
+
+        self.sendEvent(
+            data={"step": step, "auto_allow": self.auto_allow},
+            Data_type="verification",
+        )
+        verification_result = self.run_command(step["command"], command_id=step.get("command_id"))
+
+        print(verification_result)
+        
         print(f"[model] Verification evaluator: {self.current_chat_model}", flush=True)
-        self.evaluation = self.investigation.verifiRemediation(
+
+        self.evaluation = self.investigation.verifi(
             problem_statement=self.problem_statenment,
             model_name=self.current_chat_model,
             command_outputs=verification_result,
         )
+        print(self.evaluation)
         if self.evaluation.get("solved") is True:
             self.state = "IssueResolved"
             self.controller(next_step="IssueResolved")
@@ -758,6 +759,15 @@ class Api:
 
     def issueResolved(self):
         print("The issue has been resolved.")
+        self.sendEvent(
+            data={
+                "title": "Issue Resolved",
+                "message": "The issue has been resolved and verified.",
+                "summary": self.solution if isinstance(self.solution, dict) else self.verification,
+                "solved": True,
+            },
+            Data_type="issue_resolved",
+        )
 
     def solver(self):
         print(f"[model] Solve: {self.current_chat_model}", flush=True)
@@ -767,13 +777,20 @@ class Api:
         model_name=self.current_chat_model,
         relevant_command_outputs=self.command_outputs,hypothesis=self.hypothesis
         )
+
+        step = self.solution.get("step") if isinstance(self.solution, dict) else None
+        if isinstance(step, dict):
+            step.setdefault("command_id", str(uuid4()))
+            if not self.auto_allow:
+                self._pending_approvals.setdefault(step["command_id"], threading.Event())
+
         self.sendEvent(
-                    data=self.solution,
+                    data={"step": step, "auto_allow": self.auto_allow, **({} if not isinstance(self.solution, dict) else {k: v for k, v in self.solution.items() if k != "step"})},
                     Data_type="solution"
                 )
         print("Solution:")
         print(self.solution)
-        self.result = self.run_command(self.solution["step"]["command"])
+        self.result = self.run_command(step["command"], command_id=step.get("command_id"))
         print("result")
         print(self.result)
 
@@ -960,3 +977,6 @@ class Api:
 
         elif self.state == "CheckHypothesisContradiction":
             self.contradictionloop()
+
+        elif self.state == "IssueResolved":
+            self.issueResolved()
