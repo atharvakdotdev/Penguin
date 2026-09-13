@@ -621,6 +621,45 @@ if (isChatPage) {
       }
     }
 
+    function positionHelpPopup(helpWrap, popup) {
+      if (!helpWrap || !popup) return;
+
+      const wrapRect = helpWrap.getBoundingClientRect();
+      const popupWidth = Math.min(260, window.innerWidth - 32);
+      const popupHeight = 120;
+      const margin = 12;
+
+      const fitsLeft = wrapRect.left - popupWidth - margin >= 0;
+      const fitsRight = wrapRect.right + popupWidth + margin <= window.innerWidth;
+
+      if (fitsLeft) {
+        popup.style.left = 'auto';
+        popup.style.right = 'calc(100% + 8px)';
+      } else if (fitsRight) {
+        popup.style.left = 'calc(100% + 8px)';
+        popup.style.right = 'auto';
+      } else {
+        popup.style.left = '50%';
+        popup.style.right = 'auto';
+        popup.style.transform = 'translateX(-50%)';
+      }
+
+      const shouldOpenAbove = wrapRect.top - popupHeight - margin < 0;
+      if (shouldOpenAbove) {
+        popup.style.top = 'auto';
+        popup.style.bottom = 'calc(100% + 8px)';
+      } else {
+        popup.style.top = 'calc(100% + 8px)';
+        popup.style.bottom = 'auto';
+      }
+
+      if (popup.style.left === '50%') {
+        popup.style.transform = 'translateX(-50%)';
+      } else {
+        popup.style.transform = popup.style.top === 'auto' ? 'translateY(-4px)' : 'translateY(4px)';
+      }
+    }
+
     function populateAgentContent(container, response) {
       container.innerHTML = '';
       if (response && typeof response === 'object') {
@@ -648,7 +687,10 @@ if (isChatPage) {
             title.textContent = step.title || 'Step';
             const description = document.createElement('div');
             description.className = 'card-body';
-            description.textContent = step.description || '';
+            const stepDescription = typeof step.purpose === 'string'
+              ? step.purpose
+              : (typeof step.description === 'string' ? step.description : '');
+            description.textContent = stepDescription;
             if (!step.command) {
               card.appendChild(title);
               card.appendChild(description);
@@ -812,6 +854,37 @@ if (isChatPage) {
                 actionsRow3.className = 'command-actions-row';
                 actionsRow3.appendChild(splitContainer);
 
+                const rightActions = document.createElement('div');
+                rightActions.className = 'command-right-actions';
+
+                const descriptionText = typeof step.purpose === 'string'
+                  ? step.purpose.trim()
+                  : (typeof step.description === 'string' ? step.description.trim() : '');
+                if (descriptionText) {
+                  const helpWrap = document.createElement('div');
+                  helpWrap.className = 'command-help-wrap';
+
+                  const helpButton = document.createElement('button');
+                  helpButton.type = 'button';
+                  helpButton.className = 'command-help-button';
+                  helpButton.setAttribute('aria-label', 'Command details');
+                  helpButton.title = 'Command details';
+                  helpButton.textContent = 'i';
+
+                  const popup = document.createElement('div');
+                  popup.className = 'command-help-popup';
+                  popup.textContent = descriptionText;
+
+                  helpButton.addEventListener('mouseenter', () => positionHelpPopup(helpWrap, popup));
+                  helpButton.addEventListener('focus', () => positionHelpPopup(helpWrap, popup));
+                  helpButton.addEventListener('click', () => positionHelpPopup(helpWrap, popup));
+
+                  helpWrap.appendChild(helpButton);
+                  helpWrap.appendChild(popup);
+                  rightActions.appendChild(helpWrap);
+                  requestAnimationFrame(() => positionHelpPopup(helpWrap, popup));
+                }
+
                 const copyBtn3 = document.createElement('button');
                 copyBtn3.className = 'copy-command-btn';
                 copyBtn3.setAttribute('title', 'Copy command');
@@ -824,7 +897,8 @@ if (isChatPage) {
                     }, 1500);
                   });
                 });
-                actionsRow3.appendChild(copyBtn3);
+                rightActions.appendChild(copyBtn3);
+                actionsRow3.appendChild(rightActions);
                 commandWrapper.appendChild(actionsRow3);
               }
 
@@ -1294,7 +1368,10 @@ if (isChatPage) {
         const response = {
           steps: tests.map((test, index) => ({
             title: `Test ${index + 1}`,
-            description: test && typeof test.rationale === 'string' ? test.rationale : 'Testing the current hypothesis.',
+            description: test && typeof test.purpose === 'string'
+              ? test.purpose
+              : (test && typeof test.rationale === 'string' ? test.rationale : 'Testing the current hypothesis.'),
+            purpose: test && typeof test.purpose === 'string' ? test.purpose : '',
             command: test && typeof test.command === 'string' ? test.command : '',
             command_id: test && typeof test.command_id === 'string' ? test.command_id : null
           }))

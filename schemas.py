@@ -492,7 +492,7 @@ solver_scheme = {
             "required": [
                 "type",
                 "title",
-                "description",
+                "purpose",
                 "command",
                 "run",
                 "requires_sudo"
@@ -507,7 +507,7 @@ solver_scheme = {
                     "type": "string"
                 },
 
-                "description": {
+                "purpose": {
                     "type": "string"
                 },
 
@@ -538,7 +538,7 @@ verification_scheme = {
             "required": [
                 "type",
                 "title",
-                "description",
+                "purpose",
                 "command",
                 "run"
             ],
@@ -550,7 +550,7 @@ verification_scheme = {
                 "title": {
                     "type": "string"
                 },
-                "description": {
+                "purpose": {
                     "type": "string"
                 },
                 "command": {
