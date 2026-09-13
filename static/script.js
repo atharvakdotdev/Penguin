@@ -147,7 +147,10 @@ if (isChatPage) {
       chatMessages.innerHTML = '';
       chat_history = [];
       window.chat_history = chat_history;
+      currentCommand = null;
       currentInvestigation = null;
+      awaitingNextStep = false;
+      pendingContextPrompt = null;
       renderHypotheses([]);
       renderPlanState(null);
     }
@@ -170,7 +173,8 @@ if (isChatPage) {
         if (!entry || typeof entry.command !== 'string') {
           return;
         }
-        addTerminalOutput(entry.command, entry.output || '', entry.success === false);
+        const historyKey = `history:${entry.timestamp || Date.now()}:${entry.command}:${entry.output || ''}:${entry.success === false}`;
+        addTerminalOutput(entry.command, entry.output || '', entry.success === false, historyKey);
       });
     }
 
@@ -579,8 +583,8 @@ if (isChatPage) {
       }
     }
 
-    function addTerminalOutput(command, output, isError = false) {
-      const outputKey = JSON.stringify([command, output, isError]);
+    function addTerminalOutput(command, output, isError = false, dedupeKey = null) {
+      const outputKey = dedupeKey || JSON.stringify([command, output, isError]);
       if (displayedTerminalOutputs.has(outputKey)) {
         return;
       }
@@ -1331,21 +1335,21 @@ if (isChatPage) {
 
 
     function handleCommandOutputs(data) {
-      if (Array.isArray(data)) {
-        data.forEach((entry) => {
-          if (!entry || typeof entry.command !== 'string') {
-            return;
-          }
+      const commandEntries = Array.isArray(data)
+        ? data
+        : (data && typeof data === 'object' && typeof data.command === 'string' ? [data] : []);
 
-          const outputText = (entry.output || entry.error || '').trim() || (entry.success ? '(Command executed)' : 'Command failed');
-          addTerminalOutput(entry.command, outputText, entry.success === false);
-        });
-      }
+      commandEntries.forEach((entry) => {
+        if (!entry || typeof entry.command !== 'string') {
+          return;
+        }
 
-      // Keep command output in the terminal only. Do not render command results as chat placeholders.
-      if (currentInvestigation) {
-        currentInvestigation.text.textContent = '';
-      }
+        const outputText = (entry.output || entry.error || '').trim() || (entry.success ? '(Command executed)' : 'Command failed');
+        const liveKey = `live:${entry.timestamp || Date.now()}:${entry.command}:${outputText}:${entry.success === false}`;
+        addTerminalOutput(entry.command, outputText, entry.success === false, liveKey);
+      });
+
+      // Keep command output in the terminal only; do not wipe the active investigation card.
     }
 
     function formatSolution(solutionData) {
@@ -1424,12 +1428,15 @@ if (isChatPage) {
 
       if (!event?.type) return;
 
-      if (!isReplayingHistory &&
-        activeSessionId !== null &&
-        (event.session_id === null ||
-          event.session_id === undefined ||
-          String(event.session_id) !== String(activeSessionId))
-      ) {
+      if (event.type === 'command_outputs') {
+        handleCommandOutputs(event.data);
+        return;
+      }
+
+      const hasActiveSession = activeSessionId !== null && activeSessionId !== undefined && activeSessionId !== '';
+      const hasEventSession = event.session_id !== null && event.session_id !== undefined && event.session_id !== '';
+
+      if (!isReplayingHistory && hasActiveSession && hasEventSession && String(event.session_id) !== String(activeSessionId)) {
         return;
       }
 

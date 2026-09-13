@@ -88,6 +88,23 @@ class Api:
         self.active_session_id = None
         self._run_session_id = None
         self._investigation_running = False
+        self._shutdown_event.clear()
+
+    def _clear_pending_approvals(self, shutdown=False):
+        if shutdown:
+            self._shutdown_event.set()
+        else:
+            self._shutdown_event.clear()
+        self._pending_approvals.clear()
+
+        with self._active_runs_lock:
+            for run in list(self._active_runs.values()):
+                if shutdown:
+                    run._shutdown_event.set()
+                else:
+                    run._shutdown_event.clear()
+                run._pending_approvals.clear()
+                run._investigation_running = False
 
     def _runtime_snapshot(self):
         return {
@@ -227,6 +244,11 @@ class Api:
         ]
 
     def open_session(self, session_id):
+        self._clear_pending_approvals(shutdown=False)
+        self._investigation_running = False
+        self._run_session_id = None
+        self._shutdown_event.clear()
+
         session = self.session_manager.load_session(str(session_id))
         if session is None:
             return {"status": "not_found", "session_id": session_id}
@@ -272,6 +294,7 @@ class Api:
     def delete_session(self, session_id):
         removed = self.session_manager.delete_session(str(session_id))
         if removed and str(self.active_session_id) == str(session_id):
+            self._clear_pending_approvals(shutdown=False)
             self._reset_runtime_state()
         return {
             "status": "deleted" if removed else "not_found",
@@ -282,6 +305,7 @@ class Api:
         if self.active_session_id is not None:
             self.save_current_session()
 
+        self._clear_pending_approvals(shutdown=False)
         self._reset_runtime_state()
         self.current_chat_model = self.default_model
         self.chat_started = False
@@ -478,6 +502,9 @@ class Api:
         if not isinstance(command, str) or not command.strip():
             return {"success": False, "output": "", "error": "No command supplied", "return_code": -1}
 
+        if self._shutdown_event.is_set():
+            return {"success": False, "output": "", "error": "Command is no longer pending", "return_code": -1}
+
         approval = self._pending_approvals.get(command)
         if approval is not None:
             approval.set()
@@ -487,6 +514,8 @@ class Api:
             runs = list(self._active_runs.values())
 
         for run in reversed(runs):
+            if run._shutdown_event.is_set():
+                continue
             approval = run._pending_approvals.get(command)
             if approval is not None:
                 approval.set()
@@ -496,14 +525,11 @@ class Api:
 
     def stop_agent(self):
         """Stop active generation or approval waits and persist current progress."""
-        self._shutdown_event.set()
+        self._clear_pending_approvals(shutdown=True)
         with self._active_runs_lock:
             active_runs = list(self._active_runs.values())
 
         for run in active_runs:
-            run._shutdown_event.set()
-            for approval in run._pending_approvals.values():
-                approval.set()
             stream = getattr(run, "_active_stream", None)
             close = getattr(stream, "close", None)
             if callable(close):
