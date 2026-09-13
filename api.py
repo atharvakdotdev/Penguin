@@ -721,24 +721,38 @@ class Api:
     def verificationloop(self):
         print(f"[model] Verification command: {self.current_chat_model}", flush=True)
         self.verification = self.investigation.verifiRemediation(
-        problem_statement=self.problem_statenment,
-        # facts=facts,
-        model_name=self.current_chat_model
+            problem_statement=self.problem_statenment,
+            model_name=self.current_chat_model,
+            command_outputs=self.command_outputs,
         )
-        verification_result = self.run_command(
-            self.verification["step"]["command"]
-        )
+
+        if not isinstance(self.verification, dict):
+            self.state = "Solve"
+            self.controller(next_step="Solve")
+            return
+
+        step = self.verification.get("step") if isinstance(self.verification, dict) else None
+        if not isinstance(step, dict) or not isinstance(step.get("command"), str) or not step["command"].strip():
+            self.evaluation = self.verification
+            if self.evaluation.get("solved") is True:
+                self.state = "IssueResolved"
+                self.controller(next_step="IssueResolved")
+            else:
+                self.state = "Solve"
+                self.controller(next_step="Solve")
+            return
+
+        verification_result = self.run_command(step["command"])
         print(f"[model] Verification evaluator: {self.current_chat_model}", flush=True)
         self.evaluation = self.investigation.verifiRemediation(
             problem_statement=self.problem_statenment,
-            command_output=verification_result,
-            model_name=self.current_chat_model
+            model_name=self.current_chat_model,
+            command_outputs=verification_result,
         )
-        if self.evaluation["solved"]:
+        if self.evaluation.get("solved") is True:
             self.state = "IssueResolved"
             self.controller(next_step="IssueResolved")
-            pass
-        else:   
+        else:
             self.state = "Solve"
             self.controller(next_step="Solve")
 

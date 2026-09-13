@@ -1239,7 +1239,7 @@ if (isChatPage) {
  
     function handleProblemStatement(data) {
       if (!currentInvestigation) {
-        currentInvestigation = createInvestigationPlaceholder('Understanding the problem', 'Thinking...');
+        currentInvestigation = createInvestigationPlaceholder('Understanding the problem', '');
       }
 
       const payload = data && typeof data === 'object' && !Array.isArray(data) ? data : { problem_statement: data };
@@ -1462,7 +1462,7 @@ if (isChatPage) {
           break;
         case "hypotheses":
           if (isReplayingHistory) {
-            currentInvestigation = createInvestigationPlaceholder("Hypotheses Generated", "");
+            currentInvestigation = createInvestigationPlaceholder("Hypothesized", "");
           }
           handleHypotheses(event.data);
           if (!isReplayingHistory) {
