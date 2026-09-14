@@ -11,6 +11,7 @@ import webview
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
+import re
 
 import ollama
 from ollama import chat
@@ -57,6 +58,7 @@ class Api:
         self.auto_allow = self.permission_mode == "auto_confirm"
         self.current_chat_model = self.default_model
         self.chat_started = False
+        self.title = "New Chat"
 
     @property
     def model(self):
@@ -79,6 +81,7 @@ class Api:
 
     def _reset_runtime_state(self):
         self.state = DEFAULT_STATE
+        self.title = "New Chat"
         self.chat_history = []
         self.runtime_state = {}
         self.investigation = InvestigationState()
@@ -140,7 +143,7 @@ class Api:
     def save_current_session(self, title=None):
         snapshot = {
             "id": self.active_session_id,
-            "title": title or "New Chat",
+            "title": title or self.title or "New Chat",
             "created": datetime.now(timezone.utc).isoformat(),
             "modified": datetime.now(timezone.utc).isoformat(),
             "chatHistory": copy.deepcopy(self.chat_history),
@@ -183,6 +186,35 @@ class Api:
         runtime_state["chat_history"] = history
         session["runtime_state"] = runtime_state
         self.session_manager.save_session(session)
+
+
+
+    def generate_title(self,text, max_words=5):
+        # Normalize
+        STOP_WORDS = {
+        "i", "my", "me", "the", "a", "an", "is", "are", "am",
+        "on", "in", "to", "of", "for", "with", "and", "but",
+        "how", "why", "what", "can", "does", "do", "please",
+        "want", "need", "trying", "get", "getting"
+        }
+        text = text.strip()
+        text = re.sub(r"[^\w\s-]", "", text)
+
+        words = text.split()
+
+        # Remove filler words
+        important = [
+            word for word in words
+            if word.lower() not in STOP_WORDS
+        ]
+
+        # Keep first few meaningful words
+        title_words = important[:max_words]
+
+        if not title_words:
+            return "New Session"
+
+        return " ".join(title_words).capitalize()
 
     def _remove_command_from_history(self, command):
         session_id = self._event_session_id()
@@ -264,6 +296,7 @@ class Api:
             return {"status": "not_found", "session_id": session_id}
 
         self.active_session_id = session["id"]
+        self.title = session.get("title") or "New Chat"
         self.chat_history = copy.deepcopy(session.get("chatHistory", []))
         self.investigation = InvestigationState()
         self.investigating_obj = copy.deepcopy(session.get("investigation", {}))
@@ -937,6 +970,8 @@ class Api:
             return {"status": "stopped"}
         self._shutdown_event.clear()
         run = Api(self.windowobj)
+        self.title = self.generate_title(user_input)
+        run.title = self.title
         run.session_manager = self.session_manager
         run.default_model = self.default_model
         run.permission_mode = self.permission_mode
