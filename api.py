@@ -250,6 +250,9 @@ class Api:
             for session in sessions
         ]
 
+    def pending_command_ids(self):
+        return list(self._pending_approvals.keys())
+
     def open_session(self, session_id):
         self._clear_pending_approvals(shutdown=False)
         self._investigation_running = False
@@ -296,6 +299,7 @@ class Api:
             "current_chat_model": self.current_chat_model,
             "default_model": self.default_model,
             "chat_started": self.chat_started,
+            "pending_command_ids": self.pending_command_ids(),
         }
 
     def delete_session(self, session_id):

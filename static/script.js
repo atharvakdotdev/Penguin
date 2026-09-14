@@ -178,8 +178,9 @@ if (isChatPage) {
       });
     }
 
-    function replayChatHistory(history) {
+    function replayChatHistory(history, pendingCommandIds = []) {
       const safeHistory = Array.isArray(history) ? history : [];
+      const pendingIds = new Set(Array.isArray(pendingCommandIds) ? pendingCommandIds.map(String) : []);
       if (!safeHistory.length) {
         return;
       }
@@ -207,6 +208,26 @@ if (isChatPage) {
           event.data &&
           Array.isArray(event.data.tests) &&
           event.data.tests.length === 0
+        ) {
+          return;
+        }
+
+        if (event && event.type === 'testing_hypothesis' && event.data && Array.isArray(event.data.tests)) {
+          event = { ...event, data: { ...event.data, tests: event.data.tests.filter((test) => (
+            test && pendingIds.has(String(test.command_id))
+          )) } };
+          if (!event.data.tests.length) {
+            return;
+          }
+        }
+
+        if (
+          event &&
+          (event.type === 'solution' || event.type === 'verification') &&
+          event.data &&
+          event.data.step &&
+          typeof event.data.step === 'object' &&
+          !pendingIds.has(String(event.data.step.command_id))
         ) {
           return;
         }
@@ -456,7 +477,10 @@ if (isChatPage) {
                 clearChatView();
                 clearTerminalView();
                 isReplayingHistory = true;
-                replayChatHistory(result.chat_history || runtimeState.chat_history || []);
+                replayChatHistory(
+                  result.chat_history || runtimeState.chat_history || [],
+                  result.pending_command_ids || []
+                );
                 isReplayingHistory = false;
                 renderTerminalHistory();
                 sidebar.classList.remove('is-session-mode');
