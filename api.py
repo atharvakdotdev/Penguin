@@ -88,7 +88,7 @@ class Api:
         self.active_session_id = None
         self._run_session_id = None
         self._investigation_running = False
-        self._shutdown_event.clear()
+        self._shutdown_event = threading.Event()
 
     def _clear_pending_approvals(self, shutdown=False):
         if shutdown:
@@ -254,7 +254,7 @@ class Api:
         self._clear_pending_approvals(shutdown=False)
         self._investigation_running = False
         self._run_session_id = None
-        self._shutdown_event.clear()
+        self._shutdown_event = threading.Event()
 
         session = self.session_manager.load_session(str(session_id))
         if session is None:

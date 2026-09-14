@@ -462,6 +462,12 @@ if (isChatPage) {
                 sidebar.classList.remove('is-session-mode');
                 sessionsOpen = false;
                 renderSessionList();
+
+                stopAgentButton.disabled = false;
+                stopAgentButton.style.opacity = '1';
+                stopAgentButton.textContent = '⏹ Stop Agent';
+
+                setBusy(true);
                 window.pywebview.api.controller()
               }
             } catch (error) {

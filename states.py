@@ -1218,6 +1218,7 @@ class InvestigationState:
             stream_owner._active_stream = response_stream
         content_parts = []
         stream_completed = False
+        cancelled = False
         try:
             for chunk in response_stream:
                 if isinstance(chunk, dict):
@@ -1233,11 +1234,18 @@ class InvestigationState:
                     content_parts.append(content)
 
                 if stream_owner is not None and stream_owner._shutdown_event.is_set():
+                    print("1ooooohi")
+
+                    cancelled = True
                     break
                 print(chunk)
 
             if stream_owner is not None and stream_owner._shutdown_event.is_set():
-                return False
+                cancelled = True
+
+            if cancelled:
+                print("hi")
+                return None
 
             if not stream_completed:
                 raise RuntimeError("Ollama response stream ended before completion.")
@@ -1272,7 +1280,7 @@ class InvestigationState:
                                 "num_thread": 4
                             }
                         )
-        if response is False:
+        if response is False or response is None:
             return
         content = (
             response.get("message", {}).get("content", "")
@@ -1296,7 +1304,7 @@ class InvestigationState:
                                     "num_thread": 4
                                 }
                             )
-            if response is False:
+            if response is False or response is None:
                 return
             content = (
                 response.get("message", {}).get("content", "")
@@ -1350,7 +1358,7 @@ class InvestigationState:
                 "num_thread": 4
             }
         )
-        if response is False:
+        if response is False or response is None:
             return
         content = (
             response.get("message", {}).get("content", "")
@@ -1387,7 +1395,7 @@ class InvestigationState:
                 "num_thread": 4
             }
         )
-        if response is False:
+        if response is False or response is None:
             return
         content = (
             response.get("message", {}).get("content", "")
@@ -1445,7 +1453,7 @@ class InvestigationState:
                     "num_thread": 4
                 }
             )
-            if response is False:
+            if response is False or response is None:
                 return
             content = (
                 response.get("message", {}).get("content", "")
@@ -1482,7 +1490,7 @@ class InvestigationState:
                     "num_thread": 4
                 }
             )
-            if response is False:
+            if response is False or response is None:
                 return
             content = (
                 response.get("message", {}).get("content", "")
@@ -1602,7 +1610,7 @@ class InvestigationState:
                 "num_thread": 4
             }
         )
-        if response is False:
+        if response is False or response is None:
             return
         content = (
             response.get("message", {}).get("content", "")
@@ -1641,7 +1649,7 @@ class InvestigationState:
                         "num_thread": 4
                     }
                 )
-                if response is False:
+                if response is False or response is None:
                  return
                 content = (
                     response.get("message", {}).get("content", "")
