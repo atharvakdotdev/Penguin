@@ -106,6 +106,13 @@ class Api:
                 run._pending_approvals.clear()
                 run._investigation_running = False
 
+    def _abort_if_stopped(self):
+        if self._shutdown_event.is_set():
+            self._investigation_running = False
+            self._run_session_id = None
+            return True
+        return False
+
     def _runtime_snapshot(self):
         return {
             "state": self.state,
@@ -711,6 +718,9 @@ class Api:
             command_outputs=self.result,
             hypothesis=self.hypothesis
         )
+        if self.contradistion_bool is None:
+            print("stoped")
+            return
         if self.contradistion_bool["contradicts"]:
             print("The hypothesis is contradicted by the command output. Re-running the diagnosis loop.")
             self.state = "HypothesisUpdate"
@@ -726,6 +736,9 @@ class Api:
             model_name=self.current_chat_model,
             command_outputs=self.command_outputs,
         )
+        if self.verification is None:
+            print("stoped")
+            return
         print(self.verification)
         step = self.verification.get("step") if isinstance(self.verification, dict) else None
 
@@ -749,6 +762,9 @@ class Api:
             model_name=self.current_chat_model,
             command_outputs=verification_result,
         )
+        if self.evaluation is None:
+            print("stoped")
+            return
         print(self.evaluation)
         if self.evaluation.get("solved") is True:
             self.state = "IssueResolved"
@@ -777,7 +793,9 @@ class Api:
         model_name=self.current_chat_model,
         relevant_command_outputs=self.command_outputs,hypothesis=self.hypothesis
         )
-
+        if self.solution is None:
+            print("stoped")
+            return
         step = self.solution.get("step") if isinstance(self.solution, dict) else None
         if isinstance(step, dict):
             step.setdefault("command_id", str(uuid4()))
@@ -804,6 +822,9 @@ class Api:
     def UpdateHypothesis(self):
         print(f"[model] UpdateHypothesis: {self.current_chat_model}", flush=True)
         self.hypotheses = self.investigation.generateHypothesis(user_request=self.problem_statenment,model_name=self.current_chat_model,facts=self.facts,command_outputs=self.command_outputs)
+        if self.hypotheses is None:
+            print("stoped")
+            return
         print("Updated Hypotheses:")
         print(self.hypotheses)
         self.sendEvent(
@@ -829,6 +850,10 @@ class Api:
                     command_outputs=self.command_outputs,
                     model_name=self.current_chat_model
                 )
+        if self.facts is None:
+            print("stoped")
+            return
+        
         self.sendEvent(
                     data=self.facts,
                     Data_type="facts"
@@ -842,6 +867,9 @@ class Api:
     def GenerateHypothesis(self,next_step):
         print(f"[model] Hypothesis: {self.current_chat_model}", flush=True)
         self.hypotheses = self.investigation.generateHypothesis(user_request=self.problem_statenment,model_name=self.current_chat_model)
+        if self.hypotheses is None:
+            print("stoped")
+            return
         
         self.sendEvent(
             data=self.hypotheses,
@@ -862,6 +890,10 @@ class Api:
                 hypothesis=hypothesis,
                 model_name=self.current_chat_model
             )
+            if self.Testcommands is None:
+                print("stoped")
+                return
+            
             tests = self.Testcommands.get("tests", [])
             for test in tests:
                 if isinstance(test, dict):
@@ -897,6 +929,8 @@ class Api:
         self.controller(next_step=next_step)
 
     def StartInvetigation(self,user_input,attached_path,attached,next_step="Hypothesis"):
+        if self._shutdown_event.is_set():
+            return {"status": "stopped"}
         self._shutdown_event.clear()
         run = Api(self.windowobj)
         run.session_manager = self.session_manager
@@ -921,6 +955,8 @@ class Api:
                 self._active_runs.pop(id(run), None)
 
     def _start_investigation(self,user_input,attached_path,attached,next_step="Hypothesis"):
+        if self._abort_if_stopped():
+            return
         self._run_session_id = self.active_session_id
         self._investigation_running = True
         try:
@@ -938,6 +974,12 @@ class Api:
                 user_request=user_input,
                 model_name=self.current_chat_model
             )
+
+            if self.problem_statenment is None:
+                print("stoped")
+                return
+
+            
             print(self.problem_statenment,"\n")
             self.problem_statenment = json.loads(self.problem_statenment)
 
@@ -953,6 +995,8 @@ class Api:
         # Start the diagnosis loop after problem statement is identified
         
     def controller(self,user_input="",attached_path="",attached="",next_step="ProblemStatement"):
+        if self._abort_if_stopped():
+            return
 
         if self.state == "ProblemStatement":
             self.StartInvetigation(user_input,attached_path,attached,next_step="Hypothesis")

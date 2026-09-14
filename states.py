@@ -1,6 +1,7 @@
 """System prompts used by the Penguin agent."""
 
 import json
+from urllib import response
 from schemas import JSON_SCHEMA, understand_schema,hypothesis_schema,command_test_schema , facts_schema,solver_scheme,verification_scheme,check_diagnosis_scheme,verification2_scheme
 from ollama import chat
 
@@ -1233,14 +1234,14 @@ class InvestigationState:
 
                 if stream_owner is not None and stream_owner._shutdown_event.is_set():
                     break
-                # print(chunk)
+                print(chunk)
 
             if stream_owner is not None and stream_owner._shutdown_event.is_set():
-                return {"message": {"content": "".join(content_parts)}}
+                return False
 
             if not stream_completed:
                 raise RuntimeError("Ollama response stream ended before completion.")
-
+            print("stoped??")
             return {"message": {"content": "".join(content_parts)}}
         finally:
             close = getattr(response_stream, "close", None)
@@ -1271,11 +1272,13 @@ class InvestigationState:
                                 "num_thread": 4
                             }
                         )
+        if response is False:
+            return
         content = (
-                            response.get("message", {}).get("content", "")
-                            if isinstance(response, dict)
-                            else getattr(getattr(response, "message", None), "content", "")
-                        )
+            response.get("message", {}).get("content", "")
+            if isinstance(response, dict)
+            else getattr(getattr(response, "message", None), "content", "")
+        )
         
         return content
     def generateHypothesis(self, user_request, model_name, facts=None,command_outputs=[]):
@@ -1293,11 +1296,13 @@ class InvestigationState:
                                     "num_thread": 4
                                 }
                             )
+            if response is False:
+                return
             content = (
-                                response.get("message", {}).get("content", "")
-                                if isinstance(response, dict)
-                                else getattr(getattr(response, "message", None), "content", "")
-                            )
+                response.get("message", {}).get("content", "")
+                if isinstance(response, dict)
+                else getattr(getattr(response, "message", None), "content", "")
+            )
             
             return json.loads(content)
     def generateCommandsToTestHypothesis(
@@ -1345,7 +1350,8 @@ class InvestigationState:
                 "num_thread": 4
             }
         )
-
+        if response is False:
+            return
         content = (
             response.get("message", {}).get("content", "")
             if isinstance(response, dict)
@@ -1381,7 +1387,8 @@ class InvestigationState:
                 "num_thread": 4
             }
         )
-
+        if response is False:
+            return
         content = (
             response.get("message", {}).get("content", "")
             if isinstance(response, dict)
@@ -1438,7 +1445,8 @@ class InvestigationState:
                     "num_thread": 4
                 }
             )
-    
+            if response is False:
+                return
             content = (
                 response.get("message", {}).get("content", "")
                 if isinstance(response, dict)
@@ -1474,7 +1482,8 @@ class InvestigationState:
                     "num_thread": 4
                 }
             )
-    
+            if response is False:
+                return
             content = (
                 response.get("message", {}).get("content", "")
                 if isinstance(response, dict)
@@ -1593,7 +1602,8 @@ class InvestigationState:
                 "num_thread": 4
             }
         )
-
+        if response is False:
+            return
         content = (
             response.get("message", {}).get("content", "")
             if isinstance(response, dict)
@@ -1631,7 +1641,8 @@ class InvestigationState:
                         "num_thread": 4
                     }
                 )
-        
+                if response is False:
+                 return
                 content = (
                     response.get("message", {}).get("content", "")
                     if isinstance(response, dict)

@@ -669,16 +669,6 @@
       position: relative;
     }
 
-    .investigation-dropdown + .investigation-dropdown::before {
-      content: "";
-      position: absolute;
-      left: 5px;
-      top: -12px;
-      width: 1px;
-      height: 12px;
-      background: rgba(148, 163, 184, 0.4);
-    }
-
     .investigation-dropdown summary {
       list-style: none;
       cursor: pointer;
@@ -1221,6 +1211,9 @@
       flex-direction: column;
       gap: 16px;
       min-height: 0;
+      max-height: 220px;
+      overflow-y: auto;
+      overflow-x: hidden;
     }
 
     .plan-item {

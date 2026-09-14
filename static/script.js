@@ -920,59 +920,11 @@ if (isChatPage) {
     }
 
     // Helper: return true if any step contains an executable command
-    function hasExecutableCommand(steps) {
-      if (!Array.isArray(steps)) return false;
-      return steps.some((s) => s && s.command);
-    }
+
 
     // Process a single agent response and auto-continue if `is_continue` is true
     // and there are no executable commands in the returned steps.
-    async function processAgentResponse(agentMessage, response) {
-      if (!response) return;
-
-      // Expose the latest investigation object for potential use by the page
-      if (response.investigation_update && typeof response.investigation_update === 'object') {
-        window.investigating_obj = response.investigation_update;
-      }
-
-      const agentContent = agentMessage.querySelector('.message-content');
-      renderPlanState(response.decision || 'understand');
-      populateAgentContent(agentContent, response);
-
-      // If backend asked to continue, and there are no executable commands, call respond()
-      let loopCount = 0;
-      while (response && response.is_continue) {
-        // If any step contains a command, stop auto-continuation to wait for user permission
-        if (hasExecutableCommand(response.steps)) {
-          break;
-        }
-
-        // No investigation update to continue with — stop
-        if (!response.investigation_update) break;
-
-        loopCount += 1;
-        if (loopCount > 10) break; // safety to avoid infinite loops
-
-        try {
-          setBusy(true);
-          addLogOutput('Auto-continuation: sending investigation object to agent.');
-          const nextPrompt = JSON.stringify(response.investigation_update);
-          const nextResponse = await window.pywebview.api.respond(nextPrompt);
-          response = nextResponse;
-
-          if (response.investigation_update && typeof response.investigation_update === 'object') {
-            window.investigating_obj = response.investigation_update;
-          }
-
-          populateAgentContent(agentContent, response);
-        } catch (err) {
-          addLogOutput(`Auto-continue error: ${err.message || err}`, true);
-          break;
-        } finally {
-          setBusy(false);
-        }
-      }
-    }
+  
 
 
     async function executeCommand(button, command, useSudo, commandId) {
@@ -1585,11 +1537,7 @@ if (isChatPage) {
             currentInvestigation = createInvestigationPlaceholder("Hypothesizing", "");
           }
           break;
-        case "hypotheses_started":
-          if (currentInvestigation) {
-            currentInvestigation.text.textContent = event.data?.message || 'Hypothesizing';
-          }
-          break;
+
         case "hypotheses":
           if (isReplayingHistory) {
             currentInvestigation = createInvestigationPlaceholder("Hypothesized", "");

@@ -21,7 +21,7 @@ def main():
 
     api.windowobj = window
 
-    webview.start()
+    webview.start(debug=True)
 
 
 if __name__ == "__main__":
