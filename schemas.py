@@ -585,3 +585,53 @@ check_diagnosis_scheme = {
         }
     }
 }
+decideOnuserMsg={
+  "type": "object",
+  "additionalProperties": False,
+  "required": [
+    "impact",
+    "affected",
+    "action"
+  ],
+  "properties": {
+    "impact": {
+      "type": "string",
+      "enum": [
+        "none",
+        "new_fact",
+        "clarification",
+        "contradiction",
+        "test_result",
+        "constraint",
+        "problem_change",
+        "solved"
+      ]
+    },
+    "affected": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": True,
+      "items": {
+        "type": "string",
+        "enum": [
+          "none",
+          "problem",
+          "facts",
+          "hypothesis",
+          "diagnosis",
+          "solution",
+          "verification",
+          "execution"
+        ]
+      }
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "continue",
+        "reassess",
+        "stop"
+      ]
+    }
+  }
+}

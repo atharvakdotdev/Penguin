@@ -36,8 +36,11 @@ facts = []
 def dignosisloop():
     global facts
     hpy= investigation.generateHypothesis(user_request=ps,model_name="qwen2.5-coder:3b")
-
     print(hpy)
+
+    i = input()
+    print(investigation.decideOnUerMsg(user_msg=i,model_name="qwen2.5-coder:3b",hypothesis=hpy))
+    
     command_outputs = []
 
     for hypothesis in hpy["hypotheses"]:

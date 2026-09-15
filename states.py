@@ -2,7 +2,7 @@
 
 import json
 from urllib import response
-from schemas import JSON_SCHEMA, understand_schema,hypothesis_schema,command_test_schema , facts_schema,solver_scheme,verification_scheme,check_diagnosis_scheme,verification2_scheme
+from schemas import JSON_SCHEMA,decideOnuserMsg, understand_schema,hypothesis_schema,command_test_schema , facts_schema,solver_scheme,verification_scheme,check_diagnosis_scheme,verification2_scheme
 from ollama import chat
 
 DEFAULT_STATE = "understand"
@@ -1034,6 +1034,173 @@ or:
 ```
 
 No explanation. No additional fields.
+""",
+"DecideOnUserMsg": """You are a small decision step inside Penguin, an autonomous Linux diagnostic assistant.
+
+Your ONLY task is to determine how a new user message affects the CURRENT investigation.
+
+You must compare the new message against the existing investigation state.
+
+Do NOT:
+- diagnose the problem
+- generate hypotheses
+- generate commands
+- solve the problem
+- explain your reasoning
+- choose a new investigation stage
+
+Return ONLY valid JSON matching the provided schema.
+
+## Investigation areas
+
+- problem — the current problem statement
+- facts — confirmed information about the problem/system
+- hypothesis — possible explanations
+- diagnosis — the current diagnosis
+- solution — proposed or completed fix
+- verification — verification status/results
+- execution — permissions, restrictions, or command-execution conditions
+
+## impact
+
+Choose exactly one:
+
+- "none" — the message does not affect the investigation.
+- "new_fact" — the user provides information that was not previously known.
+- "clarification" — the user corrects, уточняет, or clarifies information already present.
+- "contradiction" — the user provides information that conflicts with an existing confirmed fact or conclusion.
+- "test_result" — the user provides the result of a test, command, or observation.
+- "constraint" — the user changes a restriction, permission, or execution requirement.
+- "problem_change" — the user changes or replaces the problem being investigated.
+- "solved" — the user states that the problem has been solved.
+
+## affected
+
+Return ALL investigation areas that are actually affected by the message.
+
+Do not return only the most obvious area.
+
+For example, if the existing problem says:
+
+"The custom command is qwe."
+
+and the user says:
+
+"The command is actually testcommand."
+
+then the message affects:
+
+- problem — because the problem statement contains the wrong command name
+- facts — because the user's information has changed
+- hypothesis — because hypotheses may have been based on the wrong command name
+
+Therefore:
+
+{
+  "impact": "clarification",
+  "affected": ["problem", "facts", "hypothesis"],
+  "action": "reassess"
+}
+
+Only include an area if the new message can actually affect it.
+
+Use ["none"] only when no investigation area is affected.
+
+## action
+
+Choose exactly one:
+
+- "continue" — the current reasoning remains valid and investigation can continue.
+- "reassess" — existing reasoning may no longer be reliable and should be reconsidered.
+- "stop" — the investigation should stop.
+
+IMPORTANT:
+
+"reassess" does NOT mean stop.
+
+It means the Python controller should update the investigation state and reconsider affected reasoning before continuing.
+
+You are NOT choosing a new investigation stage.
+
+## Examples
+
+Existing problem:
+"The user created a custom command called qwe."
+
+User:
+"The command I created is actually called testcommand."
+
+Output:
+{
+  "impact": "clarification",
+  "affected": ["problem", "facts", "hypothesis"],
+  "action": "reassess"
+}
+
+Existing fact:
+"The file ~/.local/bin/qwe exists."
+
+User:
+"I didn't actually create the file."
+
+Output:
+{
+  "impact": "contradiction",
+  "affected": ["facts", "hypothesis"],
+  "action": "reassess"
+}
+
+Existing investigation:
+"The user cannot run qwe."
+
+User:
+"I already added ~/.local/bin to PATH."
+
+Output:
+{
+  "impact": "new_fact",
+  "affected": ["facts", "hypothesis"],
+  "action": "reassess"
+}
+
+User:
+"I don't want Penguin to modify any files."
+
+Output:
+{
+  "impact": "constraint",
+  "affected": ["execution", "solution"],
+  "action": "continue"
+}
+
+User:
+"Never mind, I fixed it."
+
+Output:
+{
+  "impact": "solved",
+  "affected": ["verification"],
+  "action": "stop"
+}
+
+User:
+"My wallpaper looks weird."
+
+While investigating a command-not-found problem:
+
+{
+  "impact": "none",
+  "affected": ["none"],
+  "action": "continue"
+}
+
+Remember:
+
+1. Compare the message with the existing investigation.
+2. Identify EVERY affected investigation area.
+3. Use "reassess" when existing reasoning may need reconsideration.
+4. Never choose a new stage.
+5. Return ONLY JSON.
 """
 }
 
@@ -1238,7 +1405,7 @@ class InvestigationState:
 
                     cancelled = True
                     break
-                print(chunk)
+                # print(chunk)
 
             if stream_owner is not None and stream_owner._shutdown_event.is_set():
                 cancelled = True
@@ -1662,3 +1829,40 @@ class InvestigationState:
                 )
         
                 return json.loads(content)
+    def decideOnUerMsg(self, model_name,hypothesis=[],user_msg="",facts=[]):
+                    
+                    msg = [
+                        {
+                            "role": "system",
+                            "content": f"{STATE_PROMPTS['DecideOnUserMsg']}"
+                        },
+                        {
+                            "role": "system",
+                            "content": f"user_msg: {user_msg} Facts: {facts} hypothesis: {hypothesis}"
+                        },
+                        
+                    ]
+            
+                    response = self._stream_chat_response(
+                        model=model_name,
+                        messages=msg,
+                        format=decideOnuserMsg,
+                        think=False,
+                        keep_alive=-1,
+                        options={
+                            "num_thread": 4
+                        }
+                    )
+                    if response is False or response is None:
+                     return
+                    content = (
+                        response.get("message", {}).get("content", "")
+                        if isinstance(response, dict)
+                        else getattr(
+                            getattr(response, "message", None),
+                            "content",
+                            ""
+                        )
+                    )
+            
+                    return json.loads(content)
