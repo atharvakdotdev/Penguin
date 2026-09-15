@@ -22,7 +22,25 @@ from states import DEFAULT_STATE, STATE_PROMPTS, SYSTEM_PROMPT, InvestigationSta
 
 DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b").strip()
 
+INVESTIGATION_ORDER = [
+    "problem",
+    "facts",
+    "hypothesis",
+    "diagnosis",
+    "solution",
+    "verification",
+    "execution"
+]
 
+AFFECTED_TO_STATE = {
+    "problem": "ProblemStatement",
+    "facts": "Facts",
+    "hypothesis": "Hypothesis",
+    "diagnosis": "Solve",
+    "solution": "Solve",
+    "verification": "Verification",
+    "execution": "TestingHypothesis"
+}
 class Api:
     def __init__(self,windowobj=None):
         self.state = "ProblemStatement"
@@ -970,7 +988,8 @@ class Api:
             return {"status": "stopped"}
         self._shutdown_event.clear()
         run = Api(self.windowobj)
-        self.title = self.generate_title(user_input)
+        if not self.title:
+            self.title = self.generate_title(user_input)
         run.title = self.title
         run.session_manager = self.session_manager
         run.default_model = self.default_model
@@ -978,6 +997,9 @@ class Api:
         run.auto_allow = self.auto_allow
         run.current_chat_model = self.current_chat_model
         run.active_session_id = self.active_session_id
+        run.chat_history = self.chat_history
+        run.chat_started = True
+        self.chat_started = True
         run._active_runs = self._active_runs
         run._active_runs_lock = self._active_runs_lock
         run._pending_approvals = self._pending_approvals
@@ -1032,10 +1054,46 @@ class Api:
             self._investigation_running = False
             self._run_session_id = None
         # Start the diagnosis loop after problem statement is identified
+    def generateDecisionOnMsg(self, user_msg):
+
+        self.Desicion = self.investigation.decideOnUserMsg(
+            user_msg=user_msg,
+            hypothesis=self.hypotheses,
+            facts=self.facts,
+            model_name=self.current_chat_model
+        )
+
+        print(self.Desicion)
+
+        self.sendEvent(
+            data=self.Desicion,
+            Data_type="Desicion"
+        )
+
+        return self.Desicion
         
-    def controller(self,user_input="",attached_path="",attached="",next_step="ProblemStatement"):
+    def controller(self,user_input=None,attached_path="",attached="",next_step="ProblemStatement"):
+
+        if isinstance(user_input, str) and user_input.strip():
+            self._shutdown_event.clear()
+
         if self._abort_if_stopped():
             return
+        print(user_input)
+        has_prior_user_message = any(
+            isinstance(entry, dict) and entry.get("role") == "user"
+            for entry in self.chat_history
+        )
+        if isinstance(user_input, str) and user_input.strip() and has_prior_user_message:
+            event_obj = {
+                "data": user_input,
+                "type": "user",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "session_id": self.active_session_id,
+            }
+            self.chat_history.append({"role": "user", "content": json.dumps(event_obj, ensure_ascii=False)})
+            self.save_current_session()
+            self.state = "Decision"
 
         if self.state == "ProblemStatement":
             self.StartInvetigation(user_input,attached_path,attached,next_step="Hypothesis")
@@ -1046,6 +1104,7 @@ class Api:
         elif self.state == "TestingHypothesis":
             self.testHypothesis(next_step="Facts")
 
+        
         elif self.state == "Facts":
             self.GenerateFacts(next_step="HypothesisUpdate")
 
@@ -1063,3 +1122,14 @@ class Api:
 
         elif self.state == "IssueResolved":
             self.issueResolved()
+        elif self.state == "Decision":
+            self.generateDecisionOnMsg(user_msg=user_input)
+            if self.Desicion["action"] == "reassess":
+                highest_affected = min(
+                    self.Desicion["affected"],
+                    key=lambda x: INVESTIGATION_ORDER.index(x)
+                )
+            
+            self.state = AFFECTED_TO_STATE[highest_affected]
+            self.controller()
+        

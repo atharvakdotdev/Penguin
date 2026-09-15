@@ -1829,7 +1829,7 @@ class InvestigationState:
                 )
         
                 return json.loads(content)
-    def decideOnUerMsg(self, model_name,hypothesis=[],user_msg="",facts=[]):
+    def decideOnUserMsg(self, model_name,hypothesis=[],user_msg="",facts=[]):
                     
                     msg = [
                         {

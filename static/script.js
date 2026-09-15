@@ -213,9 +213,13 @@ if (isChatPage) {
         }
 
         if (event && event.type === 'testing_hypothesis' && event.data && Array.isArray(event.data.tests)) {
-          event = { ...event, data: { ...event.data, tests: event.data.tests.filter((test) => (
-            test && pendingIds.has(String(test.command_id))
-          )) } };
+          event = {
+            ...event, data: {
+              ...event.data, tests: event.data.tests.filter((test) => (
+                test && pendingIds.has(String(test.command_id))
+              ))
+            }
+          };
           if (!event.data.tests.length) {
             return;
           }
@@ -954,7 +958,7 @@ if (isChatPage) {
 
     // Process a single agent response and auto-continue if `is_continue` is true
     // and there are no executable commands in the returned steps.
-  
+
 
 
     async function executeCommand(button, command, useSudo, commandId) {
@@ -1223,13 +1227,20 @@ if (isChatPage) {
         text || `Attached log: ${attachedFileName || 'selected file'}`;
 
       // Add user message
+      const isFirstUserMessage =
+        !chatMessages.querySelector('.user-message');
+
       appendMessage('user', userMessage);
 
+      if (isFirstUserMessage) {
+        currentInvestigation = createInvestigationPlaceholder(
+          'Understanding the problem',
+          ''
+        );
+      }
+
       // Create investigation placeholder immediately
-      currentInvestigation = createInvestigationPlaceholder(
-        'Understanding the problem',
-        ''
-      );
+
 
       chatInput.value = '';
       setBusy(true);
@@ -1238,12 +1249,12 @@ if (isChatPage) {
         if (
           !window.pywebview ||
           !window.pywebview.api ||
-          typeof window.pywebview.api.StartInvetigation !== 'function'
+          typeof window.pywebview.api.controller !== 'function'
         ) {
           throw new Error('The desktop API is not available.');
         }
 
-        await window.pywebview.api.StartInvetigation(
+        await window.pywebview.api.controller(
           userMessage,
           attachedFileName || null,
           pendingAttachment ? pendingAttachment.text : null
@@ -1314,7 +1325,9 @@ if (isChatPage) {
       updateInvestigationTitle(currentInvestigation, "Hypotheses Generated");
     }
 
+    function handleDecision(data) {
 
+    }
     function handleTestingHypothesis(data) {
       if (!currentInvestigation) return;
 
@@ -1598,11 +1611,14 @@ if (isChatPage) {
         case "hypothesis_tested":
           handleHypothesisTested(event.data);
           break;
+        case "decision":
+          handleDecision(event.data);
+          break;
         case "command_outputs":
           handleCommandOutputs(event.data);
           break;
         case "solution":
-           if (!isReplayingHistory) {
+          if (!isReplayingHistory) {
             currentInvestigation = createInvestigationPlaceholder('solving', '');
           }
 
