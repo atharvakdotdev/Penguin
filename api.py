@@ -318,6 +318,7 @@ class Api:
         self.active_session_id = session["id"]
         self.title = session.get("title") or "New Chat"
         self.chat_history = copy.deepcopy(session.get("chatHistory", []))
+        print(self.chat_history)
         self.investigation = InvestigationState()
         self.investigating_obj = copy.deepcopy(session.get("investigation", {}))
         self.continue_event = bool(session.get("isContinue", False))
@@ -990,7 +991,7 @@ class Api:
         # run only once
         # run only once
 
-        if not self.title:
+        if self.title == "New Chat" or not self.title:
             self.title = self.generate_title(user_input)
 
         # run only once
@@ -1051,21 +1052,12 @@ class Api:
         self._run_session_id = self.active_session_id
         self._investigation_running = True
         try:
-            event_obj = {
-                        "data": user_input,
-                        "type": "user",
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "session_id": self._run_session_id,
-                    }
-
-            
             self.sendEvent(
             data="user_input",
             Data_type="pre_problem"
             )
 
             self.runtime_state = self._runtime_snapshot()
-            self.chat_history.append({"role": "user", "content": json.dumps(event_obj, ensure_ascii=False)})
             self.save_current_session()
             print(f"[model] ProblemStatement: {self.current_chat_model}", flush=True)
             self.problem_statenment = self.investigation.generateProblemStatement(
@@ -1111,6 +1103,7 @@ class Api:
         return self.Desicion
         
     def controller(self,user_input=None,attached_path="",attached="",next_step="ProblemStatement",histroy=None):
+
         if histroy is None and user_input is not None:
             self.sendEvent(
                         data=user_input,
@@ -1127,15 +1120,7 @@ class Api:
         if user_input:
             self.user_msg.append(user_input)
 
-        if len(self.user_msg) > 1 and user_input is not None:
-            event_obj = {
-                "data": user_input,
-                "type": "user",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "session_id": self.active_session_id,
-            }
-            self.chat_history.append({"role": "user", "content": json.dumps(event_obj, ensure_ascii=False)})
-            self.save_current_session()
+        if len(self.user_msg) > 1 and user_input is not None and self.problem_statenment is not "":
             self.state = "Decision"
 
         if self.state == "ProblemStatement":

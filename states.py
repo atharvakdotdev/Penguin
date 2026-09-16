@@ -1401,7 +1401,6 @@ class InvestigationState:
                     content_parts.append(content)
 
                 if stream_owner is not None and stream_owner._shutdown_event.is_set():
-                    print("1ooooohi")
 
                     cancelled = True
                     break
@@ -1411,12 +1410,10 @@ class InvestigationState:
                 cancelled = True
 
             if cancelled:
-                print("hi")
                 return None
 
             if not stream_completed:
                 raise RuntimeError("Ollama response stream ended before completion.")
-            print("stoped??")
             return {"message": {"content": "".join(content_parts)}}
         finally:
             close = getattr(response_stream, "close", None)
