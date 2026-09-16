@@ -1024,41 +1024,6 @@ if (isChatPage) {
     }
 
     function appendMessage(role, text) {
-      if (role === 'agent') {
-        const existingAgentBlock = chatMessages.querySelector('.message-block.agent-message:last-of-type');
-        if (existingAgentBlock) {
-          const content = existingAgentBlock.querySelector('.message-content');
-          if (!content) {
-            return existingAgentBlock;
-          }
-
-          if (typeof text === 'string') {
-            const trimmed = text.trim();
-            if (trimmed) {
-              const existingText = content.textContent ? content.textContent.trim() : '';
-              content.textContent = existingText ? `${existingText}\n${trimmed}` : trimmed;
-            }
-          } else if (text && typeof text === 'object') {
-            const payload = text.role === 'assistant' || text.role === 'user'
-              ? text.content
-              : text;
-
-            if (typeof payload === 'string') {
-              const trimmed = payload.trim();
-              if (trimmed) {
-                const existingText = content.textContent ? content.textContent.trim() : '';
-                content.textContent = existingText ? `${existingText}\n${trimmed}` : trimmed;
-              }
-            } else if (payload && typeof payload === 'object') {
-              populateAgentContent(content, payload);
-            }
-          }
-
-          chatMessages.scrollTop = chatMessages.scrollHeight;
-          return existingAgentBlock;
-        }
-      }
-
       const wrapper = document.createElement('div');
       wrapper.className = `message-block ${role === 'user' ? 'user-message' : 'agent-message'}`;
 
@@ -1575,9 +1540,7 @@ if (isChatPage) {
           appendMessage('user', event.data);
           break;
         case "pre_problem":
-          if (!isReplayingHistory) {
-            currentInvestigation = createInvestigationPlaceholder("Understanding the problem", "");
-          }
+          currentInvestigation = createInvestigationPlaceholder("Understanding the problem", "");
           break;
         case "problem_statement":
           handleProblemStatement(event.data);
@@ -1623,7 +1586,7 @@ if (isChatPage) {
           handleCommandOutputs(event.data);
           break;
         case "solution":
-          if (!isReplayingHistory) {
+          if (isReplayingHistory || !currentInvestigation) {
             currentInvestigation = createInvestigationPlaceholder('solving', '');
           }
 
@@ -1643,7 +1606,7 @@ if (isChatPage) {
           // }
           break;
         case "verification":
-          if (!isReplayingHistory) {
+          if (isReplayingHistory || !currentInvestigation) {
             currentInvestigation = createInvestigationPlaceholder('Verify Fix', '');
           }
 
@@ -1661,6 +1624,9 @@ if (isChatPage) {
           // }
           break;
         case "issue_resolved":
+          if (isReplayingHistory) {
+            currentInvestigation = createInvestigationPlaceholder('Issue Resolved', '');
+          }
           handleIssueResolved(event.data);
           break;
         case "facts":
