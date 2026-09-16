@@ -496,7 +496,7 @@ if (isChatPage) {
                 stopAgentButton.textContent = '⏹ Stop Agent';
 
                 setBusy(true);
-                window.pywebview.api.controller()
+                window.pywebview.api.controller(history=true)
               }
             } catch (error) {
               addLogOutput(`Unable to open session: ${error.message || error}`, true);
@@ -1230,14 +1230,14 @@ if (isChatPage) {
       const isFirstUserMessage =
         !chatMessages.querySelector('.user-message');
 
-      appendMessage('user', userMessage);
+      // appendMessage('user', userMessage);
 
-      if (isFirstUserMessage) {
-        currentInvestigation = createInvestigationPlaceholder(
-          'Understanding the problem',
-          ''
-        );
-      }
+      // if (isFirstUserMessage) {
+      //   currentInvestigation = createInvestigationPlaceholder(
+      //     'Understanding the problem',
+      //     ''
+      //   );
+      // }
 
       // Create investigation placeholder immediately
 
@@ -1566,13 +1566,18 @@ if (isChatPage) {
       }
 
       switch (event.type) {
-        case "investigation_started":
-          if (currentInvestigation) {
-            currentInvestigation.text.textContent = event.data?.message || 'Understanding the problem...';
-          }
-          break;
+        // case "investigation_started":
+          // if (currentInvestigation) {
+            // currentInvestigation.text.textContent = event.data?.message || 'Understanding the problem...';
+          // }
+          // break;
         case "user":
           appendMessage('user', event.data);
+          break;
+        case "pre_problem":
+          if (!isReplayingHistory) {
+            currentInvestigation = createInvestigationPlaceholder("Understanding the problem", "");
+          }
           break;
         case "problem_statement":
           handleProblemStatement(event.data);

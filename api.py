@@ -923,6 +923,7 @@ class Api:
 
     def GenerateHypothesis(self,next_step):
         print(f"[model] Hypothesis: {self.current_chat_model}", flush=True)
+        print("Problem Statement:", self.problem_statenment)
         self.hypotheses = self.investigation.generateHypothesis(user_request=self.problem_statenment,model_name=self.current_chat_model)
         if self.hypotheses is None:
             print("stoped")
@@ -988,6 +989,7 @@ class Api:
     def StartInvetigation(self,user_input,attached_path,attached,next_step="Hypothesis"):
         # run only once
         # run only once
+
         if not self.title:
             self.title = self.generate_title(user_input)
 
@@ -1055,6 +1057,13 @@ class Api:
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "session_id": self._run_session_id,
                     }
+
+            
+            self.sendEvent(
+            data="user_input",
+            Data_type="pre_problem"
+            )
+
             self.runtime_state = self._runtime_snapshot()
             self.chat_history.append({"role": "user", "content": json.dumps(event_obj, ensure_ascii=False)})
             self.save_current_session()
@@ -1083,6 +1092,8 @@ class Api:
         # Start the diagnosis loop after problem statement is identified
     def generateDecisionOnMsg(self, user_msg):
 
+            
+
         self.Desicion = self.investigation.decideOnUserMsg(
             user_msg=user_msg,
             hypothesis=self.hypotheses,
@@ -1099,7 +1110,12 @@ class Api:
 
         return self.Desicion
         
-    def controller(self,user_input=None,attached_path="",attached="",next_step="ProblemStatement"):
+    def controller(self,user_input=None,attached_path="",attached="",next_step="ProblemStatement",histroy=None):
+        if histroy is None and user_input is not None:
+            self.sendEvent(
+                        data=user_input,
+                        Data_type="user"
+                    )
 
         if isinstance(user_input, str) and user_input.strip():
             self._shutdown_event.clear()
