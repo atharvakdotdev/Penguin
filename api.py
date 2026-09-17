@@ -318,7 +318,7 @@ class Api:
         self.active_session_id = session["id"]
         self.title = session.get("title") or "New Chat"
         self.chat_history = copy.deepcopy(session.get("chatHistory", []))
-        print(self.chat_history)
+        # print(self.chat_history)
         self.investigation = InvestigationState()
         self.investigating_obj = copy.deepcopy(session.get("investigation", {}))
         self.continue_event = bool(session.get("isContinue", False))
@@ -1113,13 +1113,14 @@ class Api:
 
         return self.Desicion
         
-    def controller(self,user_input=None,attached_path="",attached="",next_step="ProblemStatement",histroy=None):
+    def controller(self,user_input=None,attached_path="",attached="",next_step="ProblemStatement",history=None):
 
-        if histroy is None and user_input is not None:
+        if history == None and user_input != None:
             self.sendEvent(
                         data=user_input,
                         Data_type="user"
                     )
+            print("lllllllllllllllllllllll")
 
         if isinstance(user_input, str) and user_input.strip():
             self._shutdown_event.clear()

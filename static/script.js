@@ -496,7 +496,13 @@ if (isChatPage) {
                 stopAgentButton.textContent = '⏹ Stop Agent';
 
                 setBusy(true);
-                window.pywebview.api.controller(history=true)
+                window.pywebview.api.controller(
+    null,
+    "",
+    "",
+    "ProblemStatement",
+    true
+);
               }
             } catch (error) {
               addLogOutput(`Unable to open session: ${error.message || error}`, true);
@@ -716,6 +722,9 @@ if (isChatPage) {
           response.steps.forEach((step) => {
             const card = document.createElement('div');
             card.className = step.command ? 'command-step' : 'card';
+            if (step.command && step.command_id) {
+              card.dataset.commandId = step.command_id;
+            }
             const title = document.createElement('div');
             title.className = 'card-header gathering';
             title.textContent = step.title || 'Step';
@@ -1009,14 +1018,25 @@ if (isChatPage) {
       } finally {
         if (commandCompleted) {
           const commandStep = button.closest('.command-step');
-          const investigationDropdown = commandStep?.closest('.investigation-dropdown');
+          const investigationDropdown =
+            commandStep?.closest('.investigation-dropdown');
+          const agentMessage =
+            commandStep?.closest('.agent-message');
+
           commandStep?.remove();
 
-          if (investigationDropdown && investigationDropdown.dataset.pendingCommands) {
-            const remainingCommands = Number(investigationDropdown.dataset.pendingCommands) - 1;
-            investigationDropdown.dataset.pendingCommands = String(Math.max(remainingCommands, 0));
+          if (investigationDropdown?.dataset.pendingCommands) {
+            const remainingCommands =
+              Number(investigationDropdown.dataset.pendingCommands) - 1;
+
+            investigationDropdown.dataset.pendingCommands =
+              String(Math.max(remainingCommands, 0));
+
             if (remainingCommands <= 0) {
               investigationDropdown.hidden = true;
+
+              // Remove the entire Linux Agent message/header
+              agentMessage?.remove();
             }
           }
         }
@@ -1532,10 +1552,10 @@ if (isChatPage) {
 
       switch (event.type) {
         // case "investigation_started":
-          // if (currentInvestigation) {
-            // currentInvestigation.text.textContent = event.data?.message || 'Understanding the problem...';
-          // }
-          // break;
+        // if (currentInvestigation) {
+        // currentInvestigation.text.textContent = event.data?.message || 'Understanding the problem...';
+        // }
+        // break;
         case "user":
           appendMessage('user', event.data);
           break;
