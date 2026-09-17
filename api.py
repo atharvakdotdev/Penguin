@@ -102,15 +102,38 @@ class Api:
     def _reset_runtime_state(self):
         self.state = DEFAULT_STATE
         self.title = "New Chat"
+
+        self.user_msg = []
+        self.problem_statenment = None
+
+        self.hypotheses = []
+        self.result = []
+        self.hypothesis = []
+        self.Testcommands = []
+        self.facts = []
+        self.command_outputs = []
+        self.verification = []
+        self.evaluation = []
+        self.contradistion_bool = False
+        self.solution = []
+
         self.chat_history = []
         self.runtime_state = {}
+
         self.investigation = InvestigationState()
         self.investigating_obj = self.investigation.new_investigation()
+
         self.continue_event = False
-        self.auto_allow = self.permission_mode == "auto_confirm"
         self.active_session_id = None
         self._run_session_id = None
         self._investigation_running = False
+
+        self.run = None
+
+        self.current_chat_model = self.default_model
+        self.chat_started = False
+        self.auto_allow = self.permission_mode == "auto_confirm"
+
         self._shutdown_event = threading.Event()
 
     def _clear_pending_approvals(self, shutdown=False):
