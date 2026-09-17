@@ -135,7 +135,122 @@ class Api:
         self.auto_allow = self.permission_mode == "auto_confirm"
 
         self._shutdown_event = threading.Event()
+    def shutdown(self):
+        """
+        Final application shutdown.
+        Stops active work, cancels approvals, terminates subprocesses,
+        closes active streams, and persists the current session.
+        """
 
+        # Prevent shutdown from running twice
+        if self._shutdown_event.is_set():
+            return
+
+        print("[shutdown] Starting cleanup...", flush=True)
+
+        # --------------------------------------------------
+        # 1. Tell every investigation operation to stop
+        # --------------------------------------------------
+        self._shutdown_event.set()
+
+        # --------------------------------------------------
+        # 2. Cancel pending command approvals
+        # --------------------------------------------------
+        self._pending_approvals.clear()
+
+        # --------------------------------------------------
+        # 3. Stop all active Api runs
+        # --------------------------------------------------
+        with self._active_runs_lock:
+            active_runs = list(self._active_runs.values())
+
+        for run in active_runs:
+            try:
+                run._shutdown_event.set()
+                run._investigation_running = False
+                run._run_session_id = None
+
+                # Cancel approvals belonging to this run
+                run._pending_approvals.clear()
+
+                # Close Ollama stream if one is active
+                stream = getattr(run, "_active_stream", None)
+
+                if stream is not None:
+                    close = getattr(stream, "close", None)
+
+                    if callable(close):
+                        try:
+                            close()
+                        except Exception:
+                            pass
+
+                    run._active_stream = None
+
+            except Exception as e:
+                print(f"[shutdown] Run cleanup failed: {e}", flush=True)
+
+        # --------------------------------------------------
+        # 4. Terminate active shell process
+        # --------------------------------------------------
+        process = self.active_process
+
+        if process is not None:
+            try:
+                if process.poll() is None:
+                    print("[shutdown] Terminating active process...", flush=True)
+
+                    process.terminate()
+
+                    try:
+                        process.wait(timeout=2)
+
+                    except subprocess.TimeoutExpired:
+                        print(
+                            "[shutdown] Process did not terminate; killing...",
+                            flush=True
+                        )
+
+                        process.kill()
+                        process.wait(timeout=1)
+
+            except Exception as e:
+                print(f"[shutdown] Process cleanup failed: {e}", flush=True)
+
+            finally:
+                self.active_process = None
+
+        # --------------------------------------------------
+        # 5. Stop this Api's investigation
+        # --------------------------------------------------
+        self._investigation_running = False
+        self._run_session_id = None
+
+        # --------------------------------------------------
+        # 6. Persist current session
+        # --------------------------------------------------
+        try:
+            if self.active_session_id is not None:
+                self.save_current_session()
+                print("[shutdown] Session saved.", flush=True)
+
+        except Exception as e:
+            print(f"[shutdown] Session save failed: {e}", flush=True)
+
+        # --------------------------------------------------
+        # 7. Clear runtime references
+        # --------------------------------------------------
+        with self._active_runs_lock:
+            self._active_runs.clear()
+
+        self._pending_approvals.clear()
+
+        self.active_process = None
+
+        # Don't need the child Api anymore
+        self.run = None
+
+        print("[shutdown] Cleanup complete.", flush=True)
     def _clear_pending_approvals(self, shutdown=False):
         if shutdown:
             self._shutdown_event.set()

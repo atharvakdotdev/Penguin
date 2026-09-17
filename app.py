@@ -20,9 +20,9 @@ def main():
     )
 
     api.windowobj = window
+    window.events.closing += lambda: api.shutdown()
 
     webview.start()
-
 
 if __name__ == "__main__":
     main()
