@@ -49,8 +49,8 @@ STATE_PROMPTS = {
 
 ROLE
 You convert a user's query (and optional logs) into a single, stable problem
-statement. This statement is generated ONCE and will not be revised later,
-so it must stand alone for the rest of the investigation.
+statement. This statement May be revised later,
+Yet it must stand alone for the rest of the investigation.
 
 INPUT
 User Query:
@@ -64,6 +64,18 @@ WHAT TO CAPTURE
 - What happened instead (the observed failure, including exact error text
   if given).
 - Any technical context explicitly stated (paths, commands, tool names).
+
+Updating the Problem Statement
+
+The problem statement must always represent the user's current understanding of the problem.
+
+When a new user message changes, corrects, or invalidates information in the existing problem statement, update the problem statement to reflect the new information.
+
+Do not treat every new message as an addition. If new information conflicts with or replaces existing information, the outdated information must be removed or replaced.
+
+If the new message only provides additional relevant information, incorporate it into the existing problem statement.
+
+The final problem statement should be a single coherent description of the current problem, not a history of the conversation.
 
 WHAT NOT TO DO (single rule, several forms)
 Do not go beyond what was said or logged. Concretely, that means:
