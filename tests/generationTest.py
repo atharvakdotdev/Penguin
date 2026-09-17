@@ -30,16 +30,13 @@ ps = investigation.generateProblemStatement(
     user_request=userinput,
     model_name="qwen2.5-coder:3b"
 )
-print(ps,"\n")
 facts = []
 
 def dignosisloop():
     global facts
     hpy= investigation.generateHypothesis(user_request=ps,model_name="qwen2.5-coder:3b")
-    print(hpy)
-
     i = input()
-    print(investigation.decideOnUerMsg(user_msg=i,model_name="qwen2.5-coder:3b",hypothesis=hpy))
+    investigation.decideOnUerMsg(user_msg=i,model_name="qwen2.5-coder:3b",hypothesis=hpy)
     
     command_outputs = []
 
@@ -50,12 +47,10 @@ def dignosisloop():
             model_name="qwen2.5-coder:3b"
         )
 
-        print(tests)
         # input("Press Enter to execute the tests...")
 
         for test in tests["tests"]:
             result = execute_command(test["command"])
-            print(result)
             command_outputs.append(result)
 
     # Only runs after ALL commands from ALL hypotheses have finished
@@ -66,12 +61,7 @@ def dignosisloop():
         model_name="qwen2.5-coder:3b"
     )
 
-    print("Facts:")
-    print(facts)
-
     hpy = investigation.generateHypothesis(user_request=ps,model_name="qwen2.5-coder:3b",facts=facts,command_outputs=command_outputs)
-    print("Updated Hypotheses:")
-    print(hpy)
 
     SOLVER_THRESHOLD = 0.9
     for hypothesis in hpy["hypotheses"]:
@@ -88,15 +78,10 @@ def solverloop(command_outputs,facts,hypothesis):
         relevant_command_outputs=command_outputs,hypothesis=hypothesis
     )
 
-    print("Solution:")
-    print(solution)
     input("Press Enter to execute the tests...")
 
     result = execute_command(solution["step"]["command"])
-    print("result")
-    print(result)
     if result["return_code"] == 0:
-        print("Solution executed successfully.")
         verification = investigation.verifiRemediation(
         problem_statement=ps,
         facts=facts,
@@ -112,9 +97,7 @@ def solverloop(command_outputs,facts,hypothesis):
             command_output=verification_result,
             model_name="qwen3:4b"
         )
-        if evaluation["solved"]:
-            print("The issue has been resolved.")
-        else:   
+        if not evaluation["solved"]:
             solverloop(command_outputs=result,facts=facts,hypothesis=hypothesis)
 
     else :
@@ -124,7 +107,6 @@ def solverloop(command_outputs,facts,hypothesis):
             hypothesis=hypothesis
         )
         if contradistion_bool["contradicts"]:
-            print("The hypothesis is contradicted by the command output. Re-running the diagnosis loop.")
             dignosisloop()
         else:
             solverloop(command_outputs=result,facts=facts,hypothesis=hypothesis)

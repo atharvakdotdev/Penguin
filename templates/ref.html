@@ -941,7 +941,6 @@
     const chatInput = document.querySelector('.chat-input-container input');
     chatInput.addEventListener('keypress', (e) => {
       if (e.key === 'Enter' && chatInput.value.trim() !== '') {
-        console.log('User sent:', chatInput.value);
         chatInput.value = '';
         // In a real app, this would append a new message block
       }

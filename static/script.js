@@ -1534,8 +1534,6 @@ if (isChatPage) {
     }
 
     window.handleInvestigationEvent = function (event) {
-      console.log("Investigation event:", event);
-
       if (!event?.type) return;
 
       if (event.type === 'command_outputs') {

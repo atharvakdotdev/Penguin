@@ -318,7 +318,6 @@ class Api:
         self.active_session_id = session["id"]
         self.title = session.get("title") or "New Chat"
         self.chat_history = copy.deepcopy(session.get("chatHistory", []))
-        # print(self.chat_history)
         self.investigation = InvestigationState()
         self.investigating_obj = copy.deepcopy(session.get("investigation", {}))
         self.continue_event = bool(session.get("isContinue", False))
@@ -565,7 +564,6 @@ class Api:
     def run_command_flag(self, command, use_sudo=False):
         """Approve a command that is already waiting in the investigation loop."""
         if not isinstance(command, str) or not command.strip():
-            print('no command supplied',command)
             return {"success": False, "output": "", "error": "No command supplied", "return_code": -1}
 
         if self._shutdown_event.is_set():
@@ -586,7 +584,6 @@ class Api:
             if approval is not None:
                 approval.set()
                 return {"success": True, "output": "", "error": "", "return_code": 0}
-        print('command is no longer pending',command)
         return {"success": False, "output": "", "error": "Command is no longer pending", "return_code": -1}
 
     def stop_agent(self):
@@ -777,10 +774,8 @@ class Api:
             hypothesis=self.hypothesis
         )
         if self.contradistion_bool is None:
-            print("stoped")
             return
         if self.contradistion_bool["contradicts"]:
-            print("The hypothesis is contradicted by the command output. Re-running the diagnosis loop.")
             self.state = "HypothesisUpdate"
             self.controller(next_step="HypothesisUpdate")
         else:
@@ -795,9 +790,7 @@ class Api:
             command_outputs=self.command_outputs,
         )
         if self.verification is None:
-            print("stoped")
             return
-        print(self.verification)
         step = self.verification.get("step") if isinstance(self.verification, dict) else None
 
         if isinstance(step, dict):
@@ -811,8 +804,6 @@ class Api:
         )
         verification_result = self.run_command(step["command"], command_id=step.get("command_id"))
 
-        print(verification_result)
-        
         print(f"[model] Verification evaluator: {self.current_chat_model}", flush=True)
 
         self.evaluation = self.investigation.verifi(
@@ -821,9 +812,7 @@ class Api:
             command_outputs=verification_result,
         )
         if self.evaluation is None:
-            print("stoped")
             return
-        print(self.evaluation)
         if self.evaluation.get("solved") is True:
             self.state = "IssueResolved"
             self.controller(next_step="IssueResolved")
@@ -832,7 +821,6 @@ class Api:
             self.controller(next_step="Solve")
 
     def issueResolved(self):
-        print("The issue has been resolved.")
         self.sendEvent(
             data={
                 "title": "Issue Resolved",
@@ -852,7 +840,6 @@ class Api:
         relevant_command_outputs=self.command_outputs,hypothesis=self.hypothesis
         )
         if self.solution is None:
-            print("stoped")
             return
         step = self.solution.get("step") if isinstance(self.solution, dict) else None
         if isinstance(step, dict):
@@ -864,11 +851,7 @@ class Api:
                     data={"step": step, "auto_allow": self.auto_allow, **({} if not isinstance(self.solution, dict) else {k: v for k, v in self.solution.items() if k != "step"})},
                     Data_type="solution"
                 )
-        print("Solution:")
-        print(self.solution)
         self.result = self.run_command(step["command"], command_id=step.get("command_id"))
-        print("result")
-        print(self.result)
 
         if self.result["return_code"] == 0:
             self.state = "Verification"
@@ -881,10 +864,7 @@ class Api:
         print(f"[model] UpdateHypothesis: {self.current_chat_model}", flush=True)
         self.hypotheses = self.investigation.generateHypothesis(user_request=self.problem_statenment,model_name=self.current_chat_model,facts=self.facts,command_outputs=self.command_outputs)
         if self.hypotheses is None:
-            print("stoped")
             return
-        print("Updated Hypotheses:")
-        print(self.hypotheses)
         self.sendEvent(
             data=self.hypotheses,
             Data_type="hypotheses"
@@ -909,7 +889,6 @@ class Api:
                     model_name=self.current_chat_model
                 )
         if self.facts is None:
-            print("stoped")
             return
         
         self.sendEvent(
@@ -917,8 +896,6 @@ class Api:
                     Data_type="facts"
                 )
         
-        print("Facts:")
-        print(self.facts)
         self.state = next_step
         self.controller(next_step=next_step)
 
@@ -926,7 +903,6 @@ class Api:
         print(f"[model] Hypothesis: {self.current_chat_model}", flush=True)
         self.hypotheses = self.investigation.generateHypothesis(user_request=self.problem_statenment,model_name=self.current_chat_model)
         if self.hypotheses is None:
-            print("stoped")
             return
         
         self.sendEvent(
@@ -934,7 +910,6 @@ class Api:
             Data_type="hypotheses"
         )
         
-        print(self.hypotheses)
         self.state = next_step
         self.controller(next_step=next_step)
 
@@ -949,7 +924,6 @@ class Api:
                 model_name=self.current_chat_model
             )
             if self.Testcommands is None:
-                print("stoped")
                 return
             
             tests = self.Testcommands.get("tests", [])
@@ -967,12 +941,10 @@ class Api:
             Data_type="testing_hypothesis"
             )
 
-            print(self.Testcommands)
             # input("Press Enter to execute the tests...")
 
             for test in tests:
                 result = self.run_command(test["command"], command_id=test.get("command_id"))
-                print(result)
                 self.command_outputs.append(result)
                 self.sendEvent(
                     data=self.command_outputs,
@@ -1080,7 +1052,6 @@ class Api:
                 return
 
             
-            print(self.problem_statenment,"\n")
             self.problem_statenment = json.loads(self.problem_statenment)
 
             self.sendEvent(
@@ -1104,8 +1075,6 @@ class Api:
             model_name=self.current_chat_model
         )
 
-        print(self.Desicion)
-
         self.sendEvent(
             data=self.Desicion,
             Data_type="Desicion"
@@ -1120,18 +1089,15 @@ class Api:
                         data=user_input,
                         Data_type="user"
                     )
-            print("lllllllllllllllllllllll")
 
         if isinstance(user_input, str) and user_input.strip():
             self._shutdown_event.clear()
 
         if self._abort_if_stopped():
             return
-        # print(user_input)
     
         if user_input:
             self.user_msg.append(user_input)
-        print("______\n",self.problem_statenment,"\n______")
 
         
         if len(self.user_msg) > 1 and user_input is not None and self.problem_statenment != None:
@@ -1188,4 +1154,3 @@ class Api:
 
                 self.state = AFFECTED_TO_STATE[highest_affected]
                 self.controller(next_step=self.state)
-                

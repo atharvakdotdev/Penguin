@@ -1387,7 +1387,6 @@ class InvestigationState:
         elif current_state == "finished":
             state = decision
             continue_ = False
-        print(continue_)
         return state, continue_
 
     def _stream_chat_response(self, **kwargs):
@@ -1416,7 +1415,6 @@ class InvestigationState:
 
                     cancelled = True
                     break
-                # print(chunk)
 
             if stream_owner is not None and stream_owner._shutdown_event.is_set():
                 cancelled = True
@@ -1440,7 +1438,6 @@ class InvestigationState:
                 stream_owner._active_stream = None
 
     # def apply_controller_transitions(self, parsed, current_state):
-    #     print(parsed)
     #     return current_state
     def generateProblemStatement(self, user_request,model_name):
         # This function generates a problem statement based on the user request
