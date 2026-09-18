@@ -1763,6 +1763,7 @@ if (isChatPage) {
         return;
       }
       try {
+        stopAgent();
         const result = await window.pywebview.api.create_new_session();
         activeSessionId = result && result.session_id ? result.session_id : null;
         sidebar.classList.remove('is-session-mode');

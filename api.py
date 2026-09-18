@@ -1221,7 +1221,7 @@ class Api:
         return self.Desicion
         
     def controller(self,user_input=None,attached_path="",attached="",next_step="ProblemStatement",history=None):
-
+        print("controller called with state:", self.state)
         if history == None and user_input != None:
             self.sendEvent(
                         data=user_input,

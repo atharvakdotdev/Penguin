@@ -5,7 +5,7 @@ from urllib import response
 from schemas import JSON_SCHEMA,decideOnuserMsg, understand_schema,hypothesis_schema,command_test_schema , facts_schema,solver_scheme,verification_scheme,check_diagnosis_scheme,verification2_scheme
 from ollama import chat
 
-DEFAULT_STATE = "understand"
+DEFAULT_STATE = "ProblemStatement"
 
 SYSTEM_PROMPT = r"""You are Penguin, an autonomous Linux troubleshooting agent.
 A controller executes your commands and passes you the command results, the Visible Chat History, and the current Investigation Object.
@@ -1415,11 +1415,12 @@ class InvestigationState:
 
                     cancelled = True
                     break
-
+                print(chunk)
             if stream_owner is not None and stream_owner._shutdown_event.is_set():
                 cancelled = True
 
             if cancelled:
+                print("stoped ")
                 return None
 
             if not stream_completed:
