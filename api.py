@@ -675,30 +675,6 @@ class Api:
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    def _new_investigation(self):
-        return self.investigation.new_investigation()
-
-    def _unique_list(self, items):
-        return self.investigation._unique_list(items)
-
-    def _normalize_facts(self, facts):
-        return self.investigation._normalize_facts(facts)
-
-    def _merge_hypotheses(self, current, updates):
-        return self.investigation.merge_hypotheses(current, updates)
-
-    def _merge_executed_commands(self, current, updates):
-        return self.investigation.merge_executed_commands(current, updates)
-
-    def _ensure_next_goal(self):
-        return self.investigation.ensure_next_goal(self.state)
-
-    def _reconcile_state(self, parsed=None):
-        self.state = self.investigation.reconcile_state(self.state, parsed)
-
-    def _serialize_investigation(self):
-        return self.investigation.serialize()
-
     def run_command_flag(self, command, use_sudo=False):
         """Approve a command that is already waiting in the investigation loop."""
         if not isinstance(command, str) or not command.strip():
