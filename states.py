@@ -384,50 +384,57 @@ Output
 Return only the JSON object matching the provided schema.""",
 
 "updatehypothesis": r"""Hypothesis Updater
-
 You are the Hypothesis Updater in a diagnostic system.
 
 Your task is to update the current set of hypotheses based on newly available
 evidence.
 
-The output must be the resulting set of hypotheses after incorporating the
-new evidence.
+The output must be the complete resulting set of hypotheses after
+incorporating the new evidence.
 
-Input
+---
 
-Problem Statement
+## INPUT
+
+### Problem Statement
+
 {{problem_statement}}
 
-Current Hypotheses
+### Current Hypotheses
+
 {{hypotheses}}
 
-Known Facts
+### Known Facts
+
 {{facts}}
 
-New Command Outputs
+### New Command Outputs
+
 {{command_outputs}}
 
-Rules
+---
+
+## RULES
 
 1. Use only the Problem Statement, Current Hypotheses, Known Facts, and
    New Command Outputs.
 
 2. Treat hypotheses as possibilities, not facts.
 
-3. Evaluate each existing hypothesis against the new evidence.
+3. Evaluate each existing hypothesis against all available evidence.
 
 4. Keep hypotheses that remain plausible and consistent with the evidence.
 
 5. Remove hypotheses that are directly contradicted by reliable evidence.
 
 6. Increase or decrease the confidence of existing hypotheses according to
-   how strongly the new evidence supports or contradicts them.
+   how strongly the available evidence supports or contradicts them.
 
 7. Do not treat a hypothesis as confirmed merely because the evidence is
-   consistent with it. Evidence should provide meaningful support.
+   consistent with it. Evidence must provide meaningful support.
 
-8. Create a new hypothesis when the new evidence reveals a plausible
-   explanation that is not represented by the current hypotheses.
+8. Create a new hypothesis when the evidence reveals a plausible explanation
+   that is not represented by the current hypotheses.
 
 9. Do not create new hypotheses merely to reword or duplicate existing ones.
 
@@ -448,20 +455,22 @@ Rules
 15. Do not generate solutions, fixes, remediation steps, or diagnostic
     commands.
 
-16. Do not solve the problem. The purpose of this stage is only to maintain
-    the hypothesis set.
+16. Do not solve the problem. This stage only maintains and evaluates the
+    hypothesis set.
 
 17. Prefer hypotheses that explain the available evidence with the fewest
     unsupported assumptions.
 
-18. A hypothesis that has been strongly supported should have higher
-    confidence than one with weak or indirect support.
+18. A hypothesis that is strongly supported should have higher confidence
+    than one with weak or indirect support.
 
-19. A hypothesis contradicted by new evidence should have its confidence
-    reduced or be removed from the output.
+19. A hypothesis contradicted by new evidence must have its confidence
+    reduced or be removed.
+
 20. If the evidence is insufficient to meaningfully change an existing
     hypothesis, preserve it only if it remains consistent with all available
     evidence.
+
 21. Every output hypothesis must have a unique id.
 
 22. Confidence must be a number between 0.0 and 1.0 and must reflect only
@@ -474,22 +483,155 @@ Rules
 
 25. If no meaningful hypotheses remain and no new hypothesis can be supported,
     return an empty hypotheses list.
+
 26. When information from the Problem Statement conflicts with evidence from
-    Known Facts or New Command Outputs, treat the newer direct evidence as
+    Known Facts or New Command Outputs, treat newer direct evidence as
     authoritative for the current system state.
 
 27. User-reported information in the Problem Statement must not override
     contradictory command output.
 
 28. Before retaining or increasing the confidence of a hypothesis, verify
-    that its claims are consistent with all relevant Known Facts and New
-    Command Outputs.
+    that its claims are consistent with all relevant Known Facts and
+    New Command Outputs.
 
 29. A hypothesis must not be confirmed or assigned high confidence if any
     of its core claims are directly contradicted by reliable evidence.
-Output
 
-Return only the JSON object matching the provided schema.""",
+---
+
+## RESULT CLASSIFICATION
+
+Every hypothesis MUST contain a `result` field.
+
+The result describes the current relationship between the hypothesis,
+the reported problem, and the available evidence.
+
+Use exactly one of these values:
+
+### `confirmed`
+
+Use when:
+
+* The available evidence meaningfully supports the hypothesis.
+* The core claims of the hypothesis are consistent with the evidence.
+* The underlying reported problem still appears to exist.
+* The evidence is sufficient for the hypothesis to be treated as the current
+  working diagnosis.
+
+A `confirmed` hypothesis is eligible to be passed to the Solver.
+
+Do NOT use `confirmed` merely because the hypothesis is plausible.
+
+---
+
+### `contradicted`
+
+Use when:
+
+* Reliable evidence directly conflicts with one or more core claims of the
+  hypothesis.
+* The hypothesis no longer explains the observed system state.
+
+A contradicted hypothesis should normally be removed from the output rather
+than retained with a low confidence.
+
+Do not use `contradicted` merely because the evidence is incomplete.
+
+---
+
+### `already_resolved`
+
+Use when:
+
+* The evidence shows that the reported problem is not currently present,
+  functioning correctly, or cannot currently be reproduced.
+* The evidence contradicts the assumption that the system is currently in the
+  broken state described by the Problem Statement.
+
+This result means that remediation is not currently justified.
+
+Examples:
+
+* The user reports that `nm-applet` does not work, but testing shows that
+  `nm-applet` launches successfully.
+* The user reports that a command does not exist, but testing shows that the
+  command is available and executes successfully.
+
+Do not use `already_resolved` merely because a hypothesis was contradicted.
+Use it only when the evidence indicates that the underlying reported problem
+itself is not currently present.
+
+---
+
+## IMPORTANT DISTINCTION
+
+`confidence` and `result` represent different things.
+
+`confidence` describes how strongly the evidence supports the hypothesis.
+
+`result` describes the current diagnostic state.
+
+A high confidence value does NOT automatically mean `confirmed`.
+
+For example:
+
+```json
+{
+  "hypothesis": "nm-applet is functioning correctly and the reported issue is not currently present.",
+  "confidence": 0.96,
+  "result": "already_resolved"
+}
+```
+
+This is valid because the model can be highly confident that the reported
+problem is not currently present.
+
+---
+
+## SOLVER RULE
+
+Only hypotheses with:
+
+```text
+result = "confirmed"
+```
+
+may be passed to the Solver.
+
+Never pass hypotheses with:
+
+```text
+result = "contradicted"
+```
+
+or:
+
+```text
+result = "already_resolved"
+```
+
+to the Solver.
+
+If a hypothesis has `already_resolved`, the investigation should be treated
+as having no current remediation target.
+
+---
+
+## OUTPUT
+
+Return only the JSON object matching the provided schema.
+
+Do not return markdown.
+
+Do not return explanations.
+
+Do not return reasoning.
+
+Do not return rejected hypotheses.
+
+Do not return additional fields.
+""",
 
 "solve": r"""You are Penguin's SOLVER.
 
@@ -1238,157 +1380,6 @@ class InvestigationState:
             "confidence": 0,
             "next_goal": "",
         }
-
-    def _unique_list(self, items):
-        if not isinstance(items, list):
-            return []
-        seen = set()
-        unique = []
-        for item in items:
-            if item not in seen:
-                seen.add(item)
-                unique.append(item)
-        return unique
-
-    def _normalize_facts(self, facts):
-        if isinstance(facts, dict):
-            return {str(k).strip(): v for k, v in facts.items()}
-        if isinstance(facts, list):
-            normalized = {}
-            for item in facts:
-                if isinstance(item, dict):
-                    norm_item = {str(k).strip(): v for k, v in item.items()}
-                    if "key" in norm_item and "value" in norm_item:
-                        normalized[str(norm_item["key"]).strip()] = norm_item["value"]
-            return normalized
-        return {}
-
-    def merge_hypotheses(self, current, updates):
-        if not isinstance(current, list):
-            current = []
-        if not isinstance(updates, list):
-            return current
-        hypotheses_by_name = {h["name"]: h for h in current if isinstance(h, dict) and "name" in h}
-        order = [h["name"] for h in current if isinstance(h, dict) and "name" in h]
-        for updated in updates:
-            if not isinstance(updated, dict) or "name" not in updated:
-                continue
-            name = updated["name"]
-            if name in hypotheses_by_name:
-                hypotheses_by_name[name] = {**hypotheses_by_name[name], **updated}
-            else:
-                hypotheses_by_name[name] = updated
-                order.append(name)
-        merged = [hypotheses_by_name[name] for name in order if name in hypotheses_by_name]
-        return merged
-
-    def merge_executed_commands(self, current, updates):
-        if not isinstance(current, list):
-            current = []
-        if not isinstance(updates, list):
-            return current
-
-        merged = list(current)
-        for entry in updates:
-            if isinstance(entry, dict) and "command" in entry:
-                merged.append(entry)
-        return merged
-
-
-
-    def ensure_next_goal(self, state):
-        return self.obj.get("next_goal")
-
-    def reconcile_state(self, current_state, parsed=None):
-        """Keep the state aligned to the LLM's own decision flow.
-
-        The controller must not infer or override investigation states from
-        evidence snapshots. Only the model should move the investigation
-        between understand -> hypothesis -> diagnose -> solve -> verify -> finished.
-        """
-        state = current_state
-
-        return state
-
-    def serialize(self):
-        return json.dumps(self.obj, indent=2, sort_keys=True)
-
-    def merge_update(self, update, state):
-        if not isinstance(update, dict):
-            return
-
-        # Normalize the update dictionary keys by stripping whitespaces
-        normalized_update = {}
-        for k, v in update.items():
-            normalized_update[str(k).strip()] = v
-
-        for key, value in normalized_update.items():
-            if key == "facts":
-                normalized = self._normalize_facts(value)
-                current_facts = self.obj.setdefault("facts", {})
-                current_facts.update(normalized)
-                self.obj["facts"] = current_facts
-            elif key == "hypotheses":
-                # Ensure each hypothesis dictionary also has normalized keys
-                normalized_hypotheses = []
-                if isinstance(value, list):
-                    for hyp in value:
-                        if isinstance(hyp, dict):
-                            normalized_hyp = {str(hk).strip(): hv for hk, hv in hyp.items()}
-                            normalized_hypotheses.append(normalized_hyp)
-                        else:
-                            normalized_hypotheses.append(hyp)
-                else:
-                    normalized_hypotheses = value
-
-                self.obj["hypotheses"] = self.merge_hypotheses(
-                    self.obj.get("hypotheses", []), normalized_hypotheses
-                )
-            elif key == "executed_commands":
-                self.obj["executed_commands"] = self.merge_executed_commands(
-                    self.obj.get("executed_commands", []), value
-                )
-            elif key == "questions":
-                if isinstance(value, list):
-                    asked = self.obj.setdefault("questions_asked", [])
-                    asked.extend([q for q in value if isinstance(q, str)])
-                    self.obj["questions_asked"] = self._unique_list(asked)
-                    pending = self.obj.get("pending_questions", [])
-                    self.obj["pending_questions"] = [q for q in pending if q not in value]
-            elif key == "pending_questions":
-                if isinstance(value, list):
-                    self.obj["pending_questions"] = self._unique_list([q for q in value if isinstance(q, str)])
-            else:
-                self.obj[key] = value
-
-        if not self.obj.get("summary"):
-            self.obj["summary"] = "Reviewing the investigation progress."
-        self.ensure_next_goal(state)
-
-    def transition_state(self, decision, current_state):
-        # Returns the new state based on the decision (preserves original mapping)
-        continue_ = False
-        state = current_state
-        if current_state == "understand":
-            state = "hypothesis"
-            continue_ = False
-        elif current_state == "hypothesis":
-            state = "diagnose"
-            continue_ = True
-        elif current_state == "diagnose":
-            state = decision
-            continue_ = True
-        elif current_state == "solve":
-            state = decision
-            continue_ = True
-        elif current_state == "verify":
-            state = decision
-            continue_ = True
-        elif current_state == "finished":
-            state = decision
-            continue_ = False
-        return state, continue_
-
     def _stream_chat_response(self, **kwargs):
         stream_owner = getattr(self, "_stream_owner", None)
         response_stream = chat(**kwargs, stream=True)

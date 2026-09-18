@@ -1010,10 +1010,15 @@ class Api:
         
         SOLVER_THRESHOLD = 0.9
         for hypothesis in self.hypotheses["hypotheses"]:
-            if hypothesis["confidence"] >= SOLVER_THRESHOLD:
+            if hypothesis["result"] == "already_resolved":
+                self.state = "IssueResolved"
+                self.controller(next_step="IssueResolved")
+
+            elif hypothesis["result"] == "confirmed" and hypothesis["confidence"] >= SOLVER_THRESHOLD:
                 self.hypothesis = hypothesis
                 self.state = "Solve"
                 self.controller(next_step="Solve")
+
             else:
                 self.state = "Hypothesis"
                 self.controller(next_step="Hypothesis")
@@ -1221,7 +1226,7 @@ class Api:
         return self.Desicion
         
     def controller(self,user_input=None,attached_path="",attached="",next_step="ProblemStatement",history=None):
-        print("controller called with state:", self.state)
+        print("controller called with state:", self.state, "user_input:", user_input, "next_step:", next_step, "history:", history, flush=True)
         if history == None and user_input != None:
             self.sendEvent(
                         data=user_input,

@@ -380,39 +380,48 @@ understand_schema = {
   ],
   "additionalProperties": False
 }
-hypothesis_schema={
-  "type": "object",
-  "properties": {
-    "hypotheses": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "hypothesis": {
-            "type": "string"
-          },
-          "confidence": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1
-          }
-        },
-        "required": [
-          "id",
-          "hypothesis",
-          "confidence"
-        ],
-        "additionalProperties": False
-      }
-    }
-  },
-  "required": [
-    "hypotheses"
-  ],
-  "additionalProperties": False
+hypothesis_schema = {
+    "type": "object",
+    "properties": {
+        "hypotheses": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "hypothesis": {
+                        "type": "string"
+                    },
+                    "confidence": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                    },
+                    "result": {
+                        "type": "string",
+                        "enum": [
+                            "confirmed",
+                            "contradicted",
+                            "already_resolved",
+                        ]
+                    }
+                },
+                "required": [
+                    "id",
+                    "hypothesis",
+                    "confidence",
+                    "result"
+                ],
+                "additionalProperties": False
+            }
+        }
+    },
+    "required": [
+        "hypotheses"
+    ],
+    "additionalProperties": False
 }
 command_test_schema = {
   "type": "object",
