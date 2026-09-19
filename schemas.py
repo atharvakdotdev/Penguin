@@ -209,8 +209,17 @@ verification_scheme = {
 verification2_scheme = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["solved"],
+    "required": ["reason", "solved"],
     "properties": {
+        "reason": {
+            "type": "string",
+            "description": (
+                "1-2 lines max: what the command output shows and whether it "
+                "confirms or contradicts the original problem being solved. "
+                "Base this only on the actual output/error content, not on "
+                "return_code or success alone."
+            )
+        },
         "solved": {
             "type": "boolean"
         }

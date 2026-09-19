@@ -16,9 +16,8 @@ import re
 import ollama
 from ollama import chat
 
-from schemas import JSON_SCHEMA
 from session_manager import SessionManager
-from states import DEFAULT_STATE, STATE_PROMPTS, SYSTEM_PROMPT, InvestigationState
+from states import DEFAULT_STATE, STATE_PROMPTS, InvestigationState
 
 DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b").strip()
 
@@ -947,10 +946,12 @@ class Api:
 
     def solver(self):
         print(f"[model] Solve: {self.current_chat_model}", flush=True)
+
         self.solution = self.investigation.generateSolution(
         problem_statement=self.problem_statenment,
         facts=self.facts,
         model_name=self.current_chat_model,
+        verification=self.evaluation,
         relevant_command_outputs=self.command_outputs,hypothesis=self.hypothesis
         )
         if self.solution is None:

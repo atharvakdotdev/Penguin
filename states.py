@@ -2,46 +2,10 @@
 
 import json
 from urllib import response
-from schemas import JSON_SCHEMA,decideOnuserMsg, understand_schema,hypothesis_schema,command_test_schema , facts_schema,solver_scheme,verification_scheme,check_diagnosis_scheme,verification2_scheme
+from schemas import decideOnuserMsg, understand_schema,hypothesis_schema,command_test_schema , facts_schema,solver_scheme,verification_scheme,check_diagnosis_scheme,verification2_scheme
 from ollama import chat
 
 DEFAULT_STATE = "ProblemStatement"
-
-SYSTEM_PROMPT = r"""You are Penguin, an autonomous Linux troubleshooting agent.
-A controller executes your commands and passes you the command results, the Visible Chat History, and the current Investigation Object.
-
-The Investigation Object is your persistent memory. Every request contains the latest Investigation Object. Read it before responding. Only update information when new evidence supports it. Never recreate information already present. Never remove confirmed facts. Never remove confirmed hypotheses. Never remove a confirmed root cause. The controller merges investigation_update into this object.
-
-You must respond with a single JSON object containing exactly the following keys:
-- reply (string): Natural language explanation shown to the user of what you are doing. Do not include commands/code or state names.
-- decision (string): The next state/decision you are transitioning to (allowed values: "understand", "hypothesis", "diagnose", "solve", "verify", "finished").
-- steps (array): Commands or actions to run. If Linux evidence is required, steps must contain exactly one command object. Otherwise, steps must be [].
-- investigation_update (object): Dictionary of updates to merge into the Investigation Object.
-
-For every response, recalculate investigation_update.next_goal from the complete
-Investigation Object. Consider the issue, summary, every fact, every hypothesis,
-all executed command results, confidence, current state, and the previous next_goal.
-Return a specific next goal that reduces the remaining uncertainty or completes the
-next required phase. Do not copy the previous next_goal when the evidence changes.
-
-EVIDENCE GATE FOR EVERY DECISION:
-Before choosing a decision, inspect the complete Investigation Object and the latest
-command result. State internally which existing facts support the decision, which
-hypothesis it tests or confirms, and what command result changed the assessment.
-Never advance because a step was merely attempted. A command is evidence only after
-its recorded output and success status have been reviewed. If the evidence is missing,
-contradictory, or inconclusive, remain in diagnose and choose one different command
-that tests the highest-value uncertainty. The next_goal must describe that evidence
-gap when one remains.
-
-GENERAL RULES:
-1. Output MUST be a single JSON object matching the JSON Schema. No markdown, no explanations outside JSON.
-2. Never repeat the most recently executed command.
-3. Return all fields required by the current state.
-4. Never ask the user to execute Linux commands or tell them to open a terminal.
-5. Ask the user a question ONLY when Linux cannot determine the answer.
-6. Confidence values must be float values between 0.0 and 1.0.
-"""
 
 STATE_PROMPTS = {
 
@@ -379,6 +343,36 @@ Rules
 
 21. If no facts can be established, return an empty facts list.
 
+22. When the Problem Statement claims a specific action was taken by the
+    user (for example: setting a permission, installing a package, creating
+    a file, exporting a variable, starting a service), and Command Outputs
+    provide direct evidence about the current state that action would have
+    produced (for example: permission bits, ownership, existence, installed
+    package version, environment variable value, process status), compare
+    the claimed action against the observed evidence.
+
+23. If the observed evidence is inconsistent with the user-claimed action
+    having taken effect, record this explicitly as its own fact describing
+    the discrepancy. State both sides of the discrepancy plainly, for
+    example: "The file at ~/.local/bin/qwe has permissions rw-r--r--, which
+    is inconsistent with the user's report of having run chmod +x on it."
+
+24. Do not silently omit, soften, or fold a discrepancy between a
+    user-reported action and the observed system state into an unrelated
+    fact. The discrepancy itself must be preserved as a distinct, explicit
+    fact even when it contradicts the Problem Statement.
+
+25. Ownership, permission bits, version numbers, and other structural
+    properties of a file, process, or command output are first-class
+    observable facts whenever present in Command Outputs, and must be
+    extracted even if the Problem Statement did not ask about them
+    specifically.
+
+26. Do not limit fact extraction to only the property a test command was
+    intended to check. If a command's output reveals additional directly
+    observable properties relevant to the problem, extract those as
+    separate facts as well.
+
 Output
 
 Return only the JSON object matching the provided schema.""",
@@ -497,6 +491,21 @@ incorporating the new evidence.
 
 29. A hypothesis must not be confirmed or assigned high confidence if any
     of its core claims are directly contradicted by reliable evidence.
+
+30. If Known Facts or New Command Outputs record a discrepancy between an
+    action the user claims to have taken (e.g. setting a permission,
+    installing a package, creating a file, exporting a variable) and the
+    observed system state, this discrepancy must itself be represented as
+    a distinct hypothesis if no existing hypothesis already captures it.
+
+31. Do not let a discrepancy between claimed user action and observed state
+    be absorbed silently into an unrelated hypothesis's reasoning. If it
+    points to a plausible independent cause of the reported problem, it must
+    be surfaced as its own hypothesis with its own confidence and result.
+
+32. A hypothesis describing such a discrepancy should be given confidence
+    proportional to how directly and reliably the evidence establishes the
+    mismatch, not to how novel or minor the discrepancy may seem.
 
 ---
 
@@ -750,6 +759,7 @@ Do not output additional commands.
 Do not output verification.
 
 """,
+
 "updatefacts": r"""Fact Updater
 
 You are the Fact Updater in a diagnostic system.
@@ -827,9 +837,9 @@ Rules
 
 Output
 
-Return only the JSON object matching the provided schema."""
-,
-"GenerateVerificationCommand":"""# VERIFICATION COMMAND GENERATOR
+Return only the JSON object matching the provided schema.""",
+
+"GenerateVerificationCommand": r""" VERIFICATION COMMAND GENERATOR
 
 You are the **Verification Command Generator**.
 
@@ -980,7 +990,8 @@ The output must contain exactly one verification step.
 
 Do not include explanations outside the JSON object.
 """,
-"VerifiRemediation" : """# VERIFICATION EVALUATOR
+
+"VerifiRemediation" : r"""VERIFICATION EVALUATOR
 
 You are the **Verification Evaluator**.
 
@@ -1123,7 +1134,8 @@ Return:
 }
 No additional fields. No explanation.
 """,
-"CheckHypothesisContradiction": """# CHECK DIAGNOSIS
+
+"CheckHypothesisContradiction": r""" CHECK DIAGNOSIS
 
 You are the **Diagnosis Consistency Checker**.
 
@@ -1189,7 +1201,8 @@ or:
 
 No explanation. No additional fields.
 """,
-"DecideOnUserMsg": """You are a small decision step inside Penguin, an autonomous Linux diagnostic assistant.
+
+"DecideOnUserMsg": r"""You are a small decision step inside Penguin, an autonomous Linux diagnostic assistant.
 
 Your ONLY task is to determine how a new user message affects the CURRENT investigation.
 
@@ -1356,6 +1369,7 @@ Remember:
 4. Never choose a new stage.
 5. Return ONLY JSON.
 """
+
 }
 
 
@@ -1406,7 +1420,7 @@ class InvestigationState:
 
                     cancelled = True
                     break
-                print(chunk)
+                # print(chunk)
             if stream_owner is not None and stream_owner._shutdown_event.is_set():
                 cancelled = True
 
@@ -1579,7 +1593,8 @@ class InvestigationState:
             hypothesis,
             facts=[],
             relevant_command_outputs=[],
-            model_name=[]
+            model_name=[],
+            verification=""
         ):
             facts = facts or []
             relevant_command_outputs = relevant_command_outputs or []
@@ -1600,6 +1615,8 @@ class InvestigationState:
     
                     Relevant Previous Command Outputs:
                     {relevant_command_outputs}
+                    
+                    previous: verification: {verification}
         """
                 },
                 {
@@ -1672,90 +1689,64 @@ class InvestigationState:
     def verifi(self, problem_statement, model_name, command_outputs=None):
 
         prompt = f"""
-    # VERIFICATION EVALUATOR
+VERIFICATION EVALUATOR
 
-    You are the Verification Evaluator.
+You are the Verification Evaluator.
 
-    Your only job is to determine whether the original user-reported problem
-    is resolved based exclusively on the verification command result.
+Your job is to determine whether the original user-reported problem is
+resolved, based on the verification command result below.
 
-    ## ORIGINAL PROBLEM
+## ORIGINAL PROBLEM
 
-    {problem_statement}
+{problem_statement}
 
-    ## VERIFICATION COMMAND RESULT
+## VERIFICATION COMMAND RESULT
 
-    {command_outputs}
+{command_outputs}
 
-    ## INTERPRETATION
+## HOW TO INTERPRET THE RESULT
 
-    The verification result may contain:
+- Treat `output` (stdout) and `error` (stderr) as the ground truth. If the
+  output directly shows the problem is fixed (e.g. the expected value,
+  content, or behavior is present), that is sufficient evidence — do not
+  require additional proof.
+- `return_code` and `success` tell you whether the command itself ran
+  correctly, not necessarily whether the underlying problem is solved.
+  Read the actual output/error content to judge the problem, not just the
+  exit status.
+- Empty output is not automatically a failure or a success — judge it based
+  on what the original problem was and what the command was checking.
+- If the output contradicts the problem statement (i.e. shows behavior that
+  the problem said was broken is now working, or vice versa), trust the
+  output over any assumption.
+- If the verification result is ambiguous, unrelated to the problem, or
+  simply doesn't contain enough information either way, return false.
 
-    - success: whether the command executed successfully
-    - output: stdout
-    - error: stderr
-    - return_code: process exit code
+## EXAMPLES
 
-    Interpret the result as evidence about the original problem.
+Original problem: "schedule.txt does not exist."
+Verification result: {{"success": true, "output": "-rw-r--r-- 1 user user 0 Jan 1 00:00 schedule.txt", "error": "", "return_code": 0}}
+reason: "ls -l lists schedule.txt, proving it exists."
+solved: true
 
-    IMPORTANT:
+Original problem: "The API returns a 500 error on /login."
+Verification result: {{"success": true, "output": "HTTP/1.1 500 Internal Server Error", "error": "", "return_code": 0}}
+reason: "Command ran fine, but output still shows the same 500 error."
+solved: false
 
-    - A successful command can have empty stdout.
-    - Empty stdout does NOT mean failure.
-    - return_code 0 means the command completed successfully.
-    - If `cat <file>` returns return_code 0 with no error, the file exists
-    and was successfully opened/read.
-    - A file having size 0 does NOT mean that the file does not exist.
-    - If `ls -l schedule.txt` successfully lists schedule.txt, then
-    schedule.txt exists.
+## TASK
 
-    ## EXAMPLE
+Do not diagnose the cause. Do not suggest commands. Do not propose
+remediation.
 
-    Original problem:
+Return a JSON object with two fields:
 
-    schedule.txt does not exist.
+- "reason": 1-2 lines max explaining what the command output shows and why
+  that does or does not prove the problem is resolved.
+- "solved": true or false, based on that reasoning.
 
-    Verification result:
-
-    {{
-    "success": true,
-    "output": "",
-    "error": "",
-    "return_code": 0
-    }}
-
-    This proves that schedule.txt exists and is readable.
-
-    Therefore:
-
-    {{
-    "solved": true
-    }}
-
-    ## TASK
-
-    Return true if the verification result provides sufficient evidence that
-    the original problem is resolved.
-
-    Return false if:
-    - the original problem still exists, OR
-    - the verification result does not provide sufficient evidence.
-
-    Do not diagnose the cause.
-    Do not suggest commands.
-    Do not propose remediation.
-
-    Return ONLY this JSON:
-
-    {{
-    "solved": true
-    }}
-
-    or:
-
-    {{
-    "solved": false
-    }}
+Return ONLY the JSON object matching the schema. Do not include any text
+outside the JSON.
     """
 
         msg = [
