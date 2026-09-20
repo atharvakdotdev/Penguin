@@ -1,0 +1,3 @@
+lecrowpus@lecrowpus-Inspiron-3593:~$ penguin-test
+bash: /home/lecrowpus/.local/bin/penguin-test: Permission denied
+lecrowpus@lecrowpus-Inspiron-3593:~$ 

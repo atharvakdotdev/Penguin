@@ -497,12 +497,12 @@ if (isChatPage) {
 
                 setBusy(true);
                 window.pywebview.api.controller(
-    null,
-    "",
-    "",
-    "ProblemStatement",
-    true
-);
+                  null,
+                  "",
+                  "",
+                  "ProblemStatement",
+                  true
+                );
               }
             } catch (error) {
               addLogOutput(`Unable to open session: ${error.message || error}`, true);
@@ -1624,9 +1624,7 @@ if (isChatPage) {
           // }
           break;
         case "verification":
-          if (isReplayingHistory || !currentInvestigation) {
-            currentInvestigation = createInvestigationPlaceholder('Verify Fix', '');
-          }
+          currentInvestigation = createInvestigationPlaceholder('Verify Fix', '');
 
           handleVerification({
             ...(event.data || {}),

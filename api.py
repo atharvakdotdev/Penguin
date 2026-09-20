@@ -461,7 +461,7 @@ class Api:
         self.auto_allow = bool(session.get("auto_allow", False))
         self.current_chat_model = str(session.get("model") or self.default_model).strip()
         self.runtime_state = copy.deepcopy(session.get("runtime_state", {}))
-
+        # print(self.chat_history)
         state_payload = self.runtime_state or {}
         self.state = str(state_payload.get("state") or DEFAULT_STATE)
         self.problem_statenment = state_payload.get("problem_statenment", "")
@@ -984,21 +984,20 @@ class Api:
             data=self.hypotheses,
             Data_type="hypotheses"
         )
-        
+        print(self.hypotheses)
         SOLVER_THRESHOLD = 0.9
         for hypothesis in self.hypotheses["hypotheses"]:
-            if hypothesis["result"] == "already_resolved":
-                self.state = "IssueResolved"
-                self.controller(next_step="IssueResolved")
-
-            elif hypothesis["result"] == "confirmed" and hypothesis["confidence"] >= SOLVER_THRESHOLD:
+            if hypothesis["confidence"] >= SOLVER_THRESHOLD:
                 self.hypothesis = hypothesis
                 self.state = "Solve"
                 self.controller(next_step="Solve")
 
-            else:
-                self.state = "Hypothesis"
-                self.controller(next_step="Hypothesis")
+        if hypothesis["result"] == "already_resolved":
+            self.state = "IssueResolved"
+            self.controller(next_step="IssueResolved")
+        else:
+            self.state = "TestingHypothesis"
+            self.controller(next_step="TestingHypothesis")
         
     def GenerateFacts(self,next_step):
         print(f"[model] Facts: {self.current_chat_model}", flush=True)
@@ -1045,7 +1044,7 @@ class Api:
             )
             if self.Testcommands is None:
                 return
-            
+            print(self.Testcommands)
             tests = self.Testcommands.get("tests", [])
             for test in tests:
                 if isinstance(test, dict):

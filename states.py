@@ -2,7 +2,7 @@
 
 import json
 from urllib import response
-from schemas import decideOnuserMsg, understand_schema,hypothesis_schema,command_test_schema , facts_schema,solver_scheme,verification_scheme,check_diagnosis_scheme,verification2_scheme
+from schemas import decideOnuserMsg, understand_schema,hypothesis_schema1,hypothesis_schema,command_test_schema , facts_schema,solver_scheme,verification_scheme,check_diagnosis_scheme,verification2_scheme
 from ollama import chat
 
 DEFAULT_STATE = "ProblemStatement"
@@ -743,13 +743,14 @@ Return ONLY valid JSON.
 Always use this exact structure:
 
 {
-"status": "continue",
-"step": {
-"type": "command",
-"title": "Short description of the fix",
-"description": "What system state this command changes and why.",
-"command": "ONE shell command"
-}
+  "step": {
+    "type": "command",
+    "title": "Short description of the fix",
+    "purpose": "What system state this command changes and why.",
+    "command": "ONE shell command",
+    "run": true,
+    "requires_sudo": false
+  }
 }
 
 Do not output markdown.
@@ -757,7 +758,6 @@ Do not output explanations.
 Do not output additional fields.
 Do not output additional commands.
 Do not output verification.
-
 """,
 
 "updatefacts": r"""Fact Updater
@@ -1420,7 +1420,7 @@ class InvestigationState:
 
                     cancelled = True
                     break
-                # print(chunk)
+                print(chunk)
             if stream_owner is not None and stream_owner._shutdown_event.is_set():
                 cancelled = True
 
@@ -1476,7 +1476,7 @@ class InvestigationState:
             response = self._stream_chat_response(
                                 model=model_name,
                                 messages=msg,
-                                format=hypothesis_schema,
+                                format=hypothesis_schema if facts else hypothesis_schema1,
                                 think=False,
                                 keep_alive=-1,
                                 options = {
