@@ -980,10 +980,7 @@ class Api:
         self.hypotheses = self.investigation.generateHypothesis(user_request=self.problem_statenment,model_name=self.current_chat_model,facts=self.facts,command_outputs=self.command_outputs)
         if self.hypotheses is None:
             return
-        self.sendEvent(
-            data=self.hypotheses,
-            Data_type="hypotheses"
-        )
+        
         print(self.hypotheses)
         SOLVER_THRESHOLD = 0.9
         for hypothesis in self.hypotheses["hypotheses"]:
@@ -991,11 +988,19 @@ class Api:
                 self.hypothesis = hypothesis
                 self.state = "Solve"
                 self.controller(next_step="Solve")
+                self.sendEvent(
+                    data=self.hypotheses,
+                    Data_type="updatehypothesis_solution"
+                )
 
         if hypothesis["result"] == "already_resolved":
             self.state = "IssueResolved"
             self.controller(next_step="IssueResolved")
         else:
+            self.sendEvent(
+                        data=self.hypotheses,
+                        Data_type="updatehypothesis_testing"
+                    )
             self.state = "TestingHypothesis"
             self.controller(next_step="TestingHypothesis")
         

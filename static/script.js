@@ -1576,6 +1576,24 @@ if (isChatPage) {
             currentInvestigation = createInvestigationPlaceholder("Testing Hypotheses", "");
           }
           break;
+        case "updatehypothesis_testing":
+          if (isReplayingHistory) {
+            currentInvestigation = createInvestigationPlaceholder("Hypothesized", "");
+          }
+          handleHypotheses(event.data);
+          if (!isReplayingHistory) {
+            currentInvestigation = createInvestigationPlaceholder("Testing Hypotheses", "");
+          }
+          break;
+        case "updatehypothesis_solution":
+          if (isReplayingHistory) {
+            currentInvestigation = createInvestigationPlaceholder("Hypothesized", "");
+          }
+          handleHypotheses(event.data);
+          if (!isReplayingHistory) {
+            currentInvestigation = createInvestigationPlaceholder("Generating Solution", "");
+          }
+          break;
         case "testing_hypothesis":
           if (isReplayingHistory) {
             currentInvestigation = createInvestigationPlaceholder("Testing Hypotheses", "");
@@ -1639,7 +1657,7 @@ if (isChatPage) {
           //   } 
           // }
           break;
-        case "issue_resolved":
+        case "issueresolved":
           if (isReplayingHistory) {
             currentInvestigation = createInvestigationPlaceholder('Issue Resolved', '');
           }
@@ -1651,7 +1669,7 @@ if (isChatPage) {
           }
           handleFacts(event.data);
           if (!isReplayingHistory) {
-            currentInvestigation = createInvestigationPlaceholder("Generating Solution", "");
+            currentInvestigation = createInvestigationPlaceholder("Updating Hypothesis", "");
           }
           break;
         case "investigation_error":
