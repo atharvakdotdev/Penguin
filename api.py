@@ -987,11 +987,12 @@ class Api:
             if hypothesis["confidence"] >= SOLVER_THRESHOLD:
                 self.hypothesis = hypothesis
                 self.state = "Solve"
-                self.controller(next_step="Solve")
                 self.sendEvent(
-                    data=self.hypotheses,
-                    Data_type="updatehypothesis_solution"
-                )
+                                    data=self.hypotheses,
+                                    Data_type="updatehypothesis_solution"
+                                )
+                self.controller(next_step="Solve")
+                
 
         if hypothesis["result"] == "already_resolved":
             self.state = "IssueResolved"

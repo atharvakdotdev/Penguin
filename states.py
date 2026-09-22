@@ -1420,7 +1420,6 @@ class InvestigationState:
 
                     cancelled = True
                     break
-                print(chunk)
             if stream_owner is not None and stream_owner._shutdown_event.is_set():
                 cancelled = True
 
