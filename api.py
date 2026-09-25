@@ -982,17 +982,28 @@ class Api:
             return
         
         print(self.hypotheses)
-        SOLVER_THRESHOLD = 0.9
-        for hypothesis in self.hypotheses["hypotheses"]:
-            if hypothesis["confidence"] >= SOLVER_THRESHOLD:
-                self.hypothesis = hypothesis
-                self.state = "Solve"
-                self.sendEvent(
-                                    data=self.hypotheses,
-                                    Data_type="updatehypothesis_solution"
-                                )
-                self.controller(next_step="Solve")
-                
+        SOLVER_THRESHOLD = 0.7
+
+        valid_hypotheses = [
+            h for h in self.hypotheses["hypotheses"]
+            if h["confidence"] >= SOLVER_THRESHOLD
+        ]
+
+        if valid_hypotheses:
+            self.hypothesis = max(
+                valid_hypotheses,
+                key=lambda h: h["confidence"]
+            )
+
+            self.state = "Solve"
+
+            self.sendEvent(
+                data=self.hypotheses,
+                Data_type="updatehypothesis_solution"
+            )
+
+            self.controller(next_step="Solve")
+                        
 
         if hypothesis["result"] == "already_resolved":
             self.state = "IssueResolved"
