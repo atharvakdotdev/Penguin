@@ -1062,7 +1062,7 @@ if (isChatPage) {
             <path d="m8 6-6 6 6 6"></path>
             <path d="m14.5 4-5 16"></path>
           </svg>
-          LINUX AGENT`;
+          PENGUIN`;
       }
 
       const timestamp = document.createElement('span');
@@ -1631,15 +1631,7 @@ if (isChatPage) {
             _history_event_id: event.event_id,
             _history_command_id: event.data?.step?.command_id || null,
           });
-          // if (!isReplayingHistory) {
-          //   currentInvestigation = currentInvestigation || createInvestigationPlaceholder("Executing Tests", "");
-          //   if (autoAllowEnabled) {
-          //     currentInvestigation.text.textContent = 'sds diagnostic tests...';
-          //     updateInvestigationTitle(currentInvestigation, 'sdsd Tests');
-          //   } else {
-          //     currentInvestigation = createInvestigationPlaceholder("sd Tests", "");
-          //   }
-          // }
+          
           break;
         case "verification":
           currentInvestigation = createInvestigationPlaceholder('Verify Fix', '');

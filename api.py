@@ -6,7 +6,6 @@ import os
 import queue
 import subprocess
 import threading
-from unittest import result
 import webview
 from datetime import datetime, timezone
 from pathlib import Path
@@ -229,6 +228,16 @@ class Api:
         # 6. Persist current session
         # --------------------------------------------------
         try:
+            if self.run is not None:
+                self.state = self.run.state
+                self.problem_statenment = self.run.problem_statenment
+                self.hypotheses = self.run.hypotheses
+                self.facts = self.run.facts
+                self.hypothesis = self.run.hypothesis
+                self.command_outputs = self.run.command_outputs
+                self.solution = self.run.solution
+                self.verification = self.run.verification
+
             if self.active_session_id is not None:
                 self.save_current_session()
                 print("[shutdown] Session saved.", flush=True)
@@ -461,9 +470,10 @@ class Api:
         self.auto_allow = bool(session.get("auto_allow", False))
         self.current_chat_model = str(session.get("model") or self.default_model).strip()
         self.runtime_state = copy.deepcopy(session.get("runtime_state", {}))
-        # print(self.chat_history)
         state_payload = self.runtime_state or {}
         self.state = str(state_payload.get("state") or DEFAULT_STATE)
+
+        
         self.problem_statenment = state_payload.get("problem_statenment", "")
         self.hypotheses = state_payload.get("hypotheses", [])
         self.result = state_payload.get("result", [])
@@ -818,9 +828,9 @@ class Api:
                 "return_code": result.returncode,
             }
         except subprocess.TimeoutExpired:
-            self._record_command(command, False, "Command timed out after 30 seconds")
+            self._record_command(command, False, "Command timed out after 120 seconds")
             self._remove_command_from_history(command)
-            error = "Command timed out after 30 seconds"
+            error = "Command timed out after 120 seconds"
             if self.windowobj is not None:
                 self.sendEvent([
                     {
@@ -927,8 +937,8 @@ class Api:
         if self.evaluation is None:
             return
         if self.evaluation.get("solved") is True:
-            self.state = "IssueResolved"
-            self.controller(next_step="IssueResolved")
+            self.state = "issueresolved"
+            self.controller(next_step="issueresolved")
         else:
             self.state = "Solve"
             self.controller(next_step="Solve")
@@ -941,7 +951,7 @@ class Api:
                 "summary": self.solution if isinstance(self.solution, dict) else self.verification,
                 "solved": True,
             },
-            Data_type="issue_resolved",
+            Data_type="issueresolved",
         )
 
     def solver(self):
@@ -1005,14 +1015,14 @@ class Api:
             self.controller(next_step="Solve")
                         
 
-        if hypothesis["result"] == "already_resolved":
-            self.state = "IssueResolved"
-            self.controller(next_step="IssueResolved")
+        if self.hypothesis["result"] == "already_resolved":
+            self.state = "issueresolved"
+            self.controller(next_step="issueresolved")
         else:
             self.sendEvent(
-                        data=self.hypotheses,
-                        Data_type="updatehypothesis_testing"
-                    )
+                data=self.hypotheses,
+                Data_type="updatehypothesis_testing"
+            )
             self.state = "TestingHypothesis"
             self.controller(next_step="TestingHypothesis")
         
@@ -1048,7 +1058,7 @@ class Api:
         
         self.state = next_step
         self.controller(next_step=next_step)
-
+        
     def testHypothesis(self,next_step):
         self.command_outputs = []
         
@@ -1097,7 +1107,7 @@ class Api:
     def StartInvetigation(self,user_input,attached_path,attached,next_step="Hypothesis"):
         # run only once
         # run only once
-
+        
         if self.title == "New Chat" or not self.title:
             self.title = self.generate_title(user_input)
 
@@ -1202,8 +1212,6 @@ class Api:
         # Start the diagnosis loop after problem statement is identified
     def generateDecisionOnMsg(self, user_msg):
 
-            
-
         self.Desicion = self.investigation.decideOnUserMsg(
             user_msg=user_msg,
             hypothesis=self.hypotheses,
@@ -1264,7 +1272,7 @@ class Api:
         elif self.state == "CheckHypothesisContradiction":
             self.contradictionloop()
 
-        elif self.state == "IssueResolved":
+        elif self.state == "issueresolved":
             self.issueResolved()
         elif self.state == "Decision":
             decision = self.generateDecisionOnMsg(user_input)
