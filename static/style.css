@@ -439,6 +439,27 @@
       margin-top: 4px;
     }
 
+    .modal-dialog input[type="password"] {
+      width: 100%;
+      padding: 10px 12px;
+      color: var(--text-main);
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      font: inherit;
+    }
+
+    .sudo-password-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .sudo-password-actions .action-btn {
+      align-self: auto;
+    }
+
     /* END: SidebarNavigation */
 
 /* BEGIN: MainChatArea */

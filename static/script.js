@@ -89,6 +89,12 @@ if (isChatPage) {
     const sessionTitle = document.querySelector('[data-session-title]');
     const planSteps = Array.from(document.querySelectorAll('.plan-item'));
     const settingsNav = document.querySelector('[data-role="settings-nav"]');
+    const sudoPasswordModal = document.getElementById('sudoPasswordModal');
+    const sudoPasswordForm = document.getElementById('sudoPasswordForm');
+    const sudoPasswordInput = document.getElementById('sudoPasswordInput');
+    const sudoPasswordMessage = document.getElementById('sudoPasswordMessage');
+    const sudoPasswordCancelButton = document.getElementById('sudoPasswordCancelButton');
+    const sudoPasswordSubmitButton = document.getElementById('sudoPasswordSubmitButton');
 
     let currentCommand = null;
     let currentInvestigation = null;
@@ -99,8 +105,102 @@ if (isChatPage) {
     let activeSessionId = null;
     let isReplayingHistory = false;
     let chat_history = [];
+    let activeSudoCommandId = null;
+    const queuedSudoPrompts = [];
     const displayedTerminalOutputs = new Set();
     window.chat_history = chat_history;
+
+    function showNextSudoPrompt() {
+      if (activeSudoCommandId !== null || !queuedSudoPrompts.length || !sudoPasswordModal) {
+        return;
+      }
+
+      const prompt = queuedSudoPrompts.shift();
+      activeSudoCommandId = prompt.command_id;
+      sudoPasswordMessage.textContent = prompt.incorrect_password
+        ? 'Authentication failed. Enter your password to try again.'
+        : 'Enter your password to continue this command.';
+      sudoPasswordInput.value = '';
+      sudoPasswordModal.classList.remove('hidden');
+      sudoPasswordModal.setAttribute('aria-hidden', 'false');
+      sudoPasswordInput.focus();
+    }
+
+    function queueSudoPasswordPrompt(data) {
+      if (isReplayingHistory || !sudoPasswordModal || !data || !data.command_id) {
+        return;
+      }
+
+      const commandId = String(data.command_id);
+      if (commandId === activeSudoCommandId || queuedSudoPrompts.some((prompt) => prompt.command_id === commandId)) {
+        return;
+      }
+
+      queuedSudoPrompts.push({
+        command_id: commandId,
+        incorrect_password: Boolean(data.incorrect_password),
+      });
+      showNextSudoPrompt();
+    }
+
+    function closeSudoPasswordPrompt() {
+      activeSudoCommandId = null;
+      sudoPasswordInput.value = '';
+      sudoPasswordModal.classList.add('hidden');
+      sudoPasswordModal.setAttribute('aria-hidden', 'true');
+      showNextSudoPrompt();
+    }
+
+    sudoPasswordForm?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (activeSudoCommandId === null || !window.pywebview?.api?.respond_sudo_password) {
+        return;
+      }
+
+      let password = sudoPasswordInput.value;
+      const commandId = activeSudoCommandId;
+      sudoPasswordInput.value = '';
+      sudoPasswordSubmitButton.disabled = true;
+      sudoPasswordCancelButton.disabled = true;
+
+      try {
+        const response = await window.pywebview.api.respond_sudo_password(commandId, password, false);
+        if (response?.status === 'accepted' || response?.status === 'not_pending') {
+          closeSudoPasswordPrompt();
+        } else {
+          sudoPasswordMessage.textContent = 'Unable to submit the password. Please try again.';
+        }
+      } catch {
+        sudoPasswordMessage.textContent = 'Unable to submit the password. Please try again.';
+      } finally {
+        password = '';
+        sudoPasswordSubmitButton.disabled = false;
+        sudoPasswordCancelButton.disabled = false;
+      }
+    });
+
+    sudoPasswordCancelButton?.addEventListener('click', async () => {
+      if (activeSudoCommandId === null || !window.pywebview?.api?.respond_sudo_password) {
+        return;
+      }
+
+      const commandId = activeSudoCommandId;
+      sudoPasswordCancelButton.disabled = true;
+      sudoPasswordSubmitButton.disabled = true;
+      try {
+        const response = await window.pywebview.api.respond_sudo_password(commandId, null, true);
+        if (response?.status === 'accepted' || response?.status === 'not_pending') {
+          closeSudoPasswordPrompt();
+        } else {
+          sudoPasswordMessage.textContent = 'Unable to cancel the command. Please try again.';
+        }
+      } catch {
+        sudoPasswordMessage.textContent = 'Unable to cancel the command. Please try again.';
+      } finally {
+        sudoPasswordCancelButton.disabled = false;
+        sudoPasswordSubmitButton.disabled = false;
+      }
+    });
 
     function formatTime() {
       return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -1545,6 +1645,11 @@ if (isChatPage) {
       const hasEventSession = event.session_id !== null && event.session_id !== undefined && event.session_id !== '';
 
       if (!isReplayingHistory && hasActiveSession && hasEventSession && String(event.session_id) !== String(activeSessionId)) {
+        return;
+      }
+
+      if (event.type === 'sudo_password_required') {
+        queueSudoPasswordPrompt(event.data);
         return;
       }
 

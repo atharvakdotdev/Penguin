@@ -1,0 +1,5 @@
+(env) lecrowpus@lecrowpus-Inspiron-3593:~/lecrowpus/pythonq/python-apps/penguin$ python3 tests/server.py 
+ * Serving Flask app 'server'
+ * Debug mode: off
+Address already in use
+Port 5000 is in use by another program. 

@@ -199,6 +199,18 @@
       <button class="action-btn" id="knowledgeBaseCloseButton" type="button">Close</button>
     </div>
   </div>
+  <div class="modal-backdrop hidden" id="sudoPasswordModal" aria-hidden="true">
+    <form class="modal-dialog" id="sudoPasswordForm" role="dialog" aria-modal="true" aria-labelledby="sudoPasswordDialogTitle">
+      <h3 id="sudoPasswordDialogTitle">Administrator authentication required</h3>
+      <p id="sudoPasswordMessage">Enter your password to continue this command.</p>
+      <label for="sudoPasswordInput">Password</label>
+      <input id="sudoPasswordInput" type="password" autocomplete="off" spellcheck="false" required />
+      <div class="sudo-password-actions">
+        <button class="action-btn" id="sudoPasswordCancelButton" type="button">Cancel</button>
+        <button class="action-btn" id="sudoPasswordSubmitButton" type="submit">Submit</button>
+      </div>
+    </form>
+  </div>
   </body>
 
 </html>
