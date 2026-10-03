@@ -18,6 +18,7 @@ import select
 import signal
 import ollama
 from ollama import chat
+import shlex
 
 from session_manager import SessionManager
 from states import DEFAULT_STATE, STATE_PROMPTS, InvestigationState
@@ -830,6 +831,13 @@ class Api:
         fd = None
         cancelled = False
 
+        # Automatically use sudo for chmod commands 
+        try: 
+            parts = shlex.split(command) 
+            if parts and parts[0] == "chmod": 
+                use_sudo = True 
+        except ValueError: 
+            pass
         try:
             direct_sudo_command = bool(re.match(r"^\s*sudo(?:\s|$)", command))
             is_sudo_command = use_sudo or direct_sudo_command

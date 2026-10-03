@@ -1,0 +1,2 @@
+cd ~/penguin-permission-test/secret
+bash: cd: /home/lecrowpus/penguin-permission-test/secret: Permission denied
