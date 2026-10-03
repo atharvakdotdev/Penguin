@@ -947,6 +947,18 @@
       color: #ff6b6b;
     }
 
+    .action-btn.btn-continue {
+      color: var(--accent-green);
+      border-color: rgba(63, 185, 80, 0.35);
+      background: rgba(63, 185, 80, 0.1);
+    }
+
+    .action-btn.btn-continue:hover {
+      border-color: var(--accent-green);
+      background: rgba(63, 185, 80, 0.22);
+      color: var(--accent-green);
+    }
+
     .btn-allow-command {
       background: rgba(63, 185, 80, 0.15);
       border: 1px solid var(--accent-green);
@@ -1115,7 +1127,6 @@
     }
 
     .btn-stop {
-      margin-left: auto;
       border-color: #f85149;
       color: #f85149;
     }
@@ -1123,6 +1134,10 @@
     .btn-stop:hover {
       background: rgba(248, 81, 73, 0.1);
       color: #f85149;
+    }
+
+    .chat-actions #stopAgentButton {
+      margin-left: auto;
     }
 
     /* END: MainChatArea */

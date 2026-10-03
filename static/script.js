@@ -590,19 +590,7 @@ if (isChatPage) {
                 sidebar.classList.remove('is-session-mode');
                 sessionsOpen = false;
                 renderSessionList();
-
-                stopAgentButton.disabled = false;
-                stopAgentButton.style.opacity = '1';
-                stopAgentButton.textContent = '⏹ Stop Agent';
-
-                setBusy(true);
-                window.pywebview.api.controller(
-                  null,
-                  "",
-                  "",
-                  "ProblemStatement",
-                  true
-                );
+                setBusy(false);
               }
             } catch (error) {
               addLogOutput(`Unable to open session: ${error.message || error}`, true);
@@ -1268,8 +1256,11 @@ if (isChatPage) {
         attachLogButton.style.opacity = isBusy ? '0.6' : '1';
       }
       if (stopAgentButton) {
-        stopAgentButton.disabled = !isBusy;
-        stopAgentButton.style.opacity = isBusy ? '1' : '0.55';
+        stopAgentButton.disabled = false;
+        stopAgentButton.style.opacity = '1';
+        stopAgentButton.textContent = isBusy ? '⏹ Stop Agent' : '▶ Continue';
+        stopAgentButton.classList.toggle('btn-stop', isBusy);
+        stopAgentButton.classList.toggle('btn-continue', !isBusy);
       }
     }
 
@@ -1293,8 +1284,38 @@ if (isChatPage) {
         addLogOutput(`Unable to stop agent: ${error.message || error}`, true);
       } finally {
         setBusy(false);
-        stopAgentButton.textContent = '⏹ Stop Agent';
       }
+    }
+
+    async function continueAgent() {
+      if (!stopAgentButton) {
+        return;
+      }
+
+      setBusy(true);
+      try {
+        if (!window.pywebview?.api || typeof window.pywebview.api.continue_agent !== 'function') {
+          throw new Error('The desktop API is not available.');
+        }
+        const result = await window.pywebview.api.continue_agent();
+        if (result && result.status === 'nothing_to_continue') {
+          addLogOutput('There is no stopped investigation to continue.');
+        } else if (result && result.status === 'still_stopping') {
+          addLogOutput('The agent is still stopping. Click Continue again in a moment.');
+        }
+      } catch (error) {
+        addLogOutput(`Unable to continue agent: ${error.message || error}`, true);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function handleAgentAction() {
+      if (stopAgentButton?.classList.contains('btn-continue')) {
+        await continueAgent();
+        return;
+      }
+      await stopAgent();
     }
 
     async function sendMessage() {
@@ -1822,9 +1843,8 @@ if (isChatPage) {
     sendButton.addEventListener('click', sendMessage);
 
     if (stopAgentButton) {
-      stopAgentButton.addEventListener('click', stopAgent);
-      stopAgentButton.disabled = true;
-      stopAgentButton.style.opacity = '0.55';
+      stopAgentButton.addEventListener('click', handleAgentAction);
+      setBusy(false);
     }
 
     if (sidebarToggle) {

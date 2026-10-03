@@ -476,6 +476,19 @@ class Api:
         self.active_session_id = session["id"]
         self.title = session.get("title") or "New Chat"
         self.chat_history = copy.deepcopy(session.get("chatHistory", []))
+        self.user_msg = []
+        for history_item in self.chat_history:
+            if history_item.get("role") != "system":
+                continue
+            try:
+                event = json.loads(history_item.get("content", ""))
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if isinstance(event, dict) and event.get("type") == "user":
+                user_input = event.get("data")
+                if isinstance(user_input, str):
+                    self.user_msg.append(user_input)
+
         self.investigation = InvestigationState()
         self.investigating_obj = copy.deepcopy(session.get("investigation", {}))
         self.continue_event = bool(session.get("isContinue", False))
@@ -766,6 +779,19 @@ class Api:
         else:
             self.save_current_session()
         return {"status": "stopped"}
+
+    def continue_agent(self):
+        """Resume the current investigation from its saved controller state."""
+        with self._active_runs_lock:
+            if self._active_runs:
+                return {"status": "still_stopping"}
+
+        if not self.user_msg:
+            return {"status": "nothing_to_continue"}
+
+        self._clear_pending_approvals(shutdown=False)
+        return self.controller(next_step=self.state)
+
     def _record_command(self, command, success, output):
         executions = self.investigating_obj.setdefault("executed_commands", [])
         execution = {
