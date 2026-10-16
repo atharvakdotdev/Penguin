@@ -91,10 +91,15 @@ if (isChatPage) {
     const settingsNav = document.querySelector('[data-role="settings-nav"]');
     const sudoPasswordModal = document.getElementById('sudoPasswordModal');
     const sudoPasswordForm = document.getElementById('sudoPasswordForm');
+    const sudoPasswordDialogTitle = document.getElementById('sudoPasswordDialogTitle');
     const sudoPasswordInput = document.getElementById('sudoPasswordInput');
+    const sudoPasswordField = document.getElementById('sudoPasswordField');
     const sudoPasswordMessage = document.getElementById('sudoPasswordMessage');
     const sudoPasswordCancelButton = document.getElementById('sudoPasswordCancelButton');
     const sudoPasswordSubmitButton = document.getElementById('sudoPasswordSubmitButton');
+    const commandInputPromptText = document.getElementById('commandInputPromptText');
+    const commandInputNoButton = document.getElementById('commandInputNoButton');
+    const commandInputYesButton = document.getElementById('commandInputYesButton');
 
     let currentCommand = null;
     let currentInvestigation = null;
@@ -105,60 +110,75 @@ if (isChatPage) {
     let activeSessionId = null;
     let isReplayingHistory = false;
     let chat_history = [];
-    let activeSudoCommandId = null;
-    const queuedSudoPrompts = [];
+    let activeInputPrompt = null;
+    const queuedInputPrompts = [];
     const displayedTerminalOutputs = new Set();
     window.chat_history = chat_history;
 
-    function showNextSudoPrompt() {
-      if (activeSudoCommandId !== null || !queuedSudoPrompts.length || !sudoPasswordModal) {
+    function showNextCommandInputPrompt() {
+      if (activeInputPrompt !== null || !queuedInputPrompts.length || !sudoPasswordModal) {
         return;
       }
 
-      const prompt = queuedSudoPrompts.shift();
-      activeSudoCommandId = prompt.command_id;
-      sudoPasswordMessage.textContent = prompt.incorrect_password
-        ? 'Authentication failed. Enter your password to try again.'
-        : 'Enter your password to continue this command.';
+      activeInputPrompt = queuedInputPrompts.shift();
+      const isSudoPrompt = activeInputPrompt.type === 'sudo';
+      sudoPasswordDialogTitle.textContent = isSudoPrompt
+        ? 'Administrator authentication required'
+        : 'Command confirmation required';
+      sudoPasswordMessage.textContent = isSudoPrompt
+        ? (activeInputPrompt.incorrect_password
+          ? 'Authentication failed. Enter your password to try again.'
+          : 'Enter your password to continue this command.')
+        : 'Choose how to respond to this command prompt.';
+      commandInputPromptText.textContent = isSudoPrompt ? '' : activeInputPrompt.prompt;
+      commandInputPromptText.hidden = isSudoPrompt;
+      sudoPasswordField.hidden = !isSudoPrompt;
+      sudoPasswordCancelButton.hidden = !isSudoPrompt;
+      sudoPasswordSubmitButton.hidden = !isSudoPrompt;
+      commandInputNoButton.hidden = isSudoPrompt;
+      commandInputYesButton.hidden = isSudoPrompt;
       sudoPasswordInput.value = '';
       sudoPasswordModal.classList.remove('hidden');
       sudoPasswordModal.setAttribute('aria-hidden', 'false');
-      sudoPasswordInput.focus();
+      (isSudoPrompt ? sudoPasswordInput : commandInputNoButton).focus();
     }
 
-    function queueSudoPasswordPrompt(data) {
+    function queueCommandInputPrompt(type, data) {
       if (isReplayingHistory || !sudoPasswordModal || !data || !data.command_id) {
         return;
       }
 
       const commandId = String(data.command_id);
-      if (commandId === activeSudoCommandId || queuedSudoPrompts.some((prompt) => prompt.command_id === commandId)) {
+      const isDuplicate = (prompt) => prompt.type === type && prompt.command_id === commandId;
+      if (isDuplicate(activeInputPrompt || {}) || queuedInputPrompts.some(isDuplicate)) {
         return;
       }
 
-      queuedSudoPrompts.push({
+      queuedInputPrompts.push({
+        type,
         command_id: commandId,
         incorrect_password: Boolean(data.incorrect_password),
+        prompt: typeof data.prompt === 'string' ? data.prompt : '',
       });
-      showNextSudoPrompt();
+      showNextCommandInputPrompt();
     }
 
-    function closeSudoPasswordPrompt() {
-      activeSudoCommandId = null;
+    function closeCommandInputPrompt() {
+      activeInputPrompt = null;
       sudoPasswordInput.value = '';
       sudoPasswordModal.classList.add('hidden');
       sudoPasswordModal.setAttribute('aria-hidden', 'true');
-      showNextSudoPrompt();
+      showNextCommandInputPrompt();
     }
 
     sudoPasswordForm?.addEventListener('submit', async (event) => {
       event.preventDefault();
-      if (activeSudoCommandId === null || !window.pywebview?.api?.respond_sudo_password) {
+      if (activeInputPrompt?.type !== 'sudo' || !window.pywebview?.api?.respond_sudo_password) {
         return;
       }
 
       let password = sudoPasswordInput.value;
-      const commandId = activeSudoCommandId;
+      const commandId = activeInputPrompt.command_id;
       sudoPasswordInput.value = '';
       sudoPasswordSubmitButton.disabled = true;
       sudoPasswordCancelButton.disabled = true;
@@ -166,7 +186,7 @@ if (isChatPage) {
       try {
         const response = await window.pywebview.api.respond_sudo_password(commandId, password, false);
         if (response?.status === 'accepted' || response?.status === 'not_pending') {
-          closeSudoPasswordPrompt();
+          closeCommandInputPrompt();
         } else {
           sudoPasswordMessage.textContent = 'Unable to submit the password. Please try again.';
         }
@@ -180,17 +200,17 @@ if (isChatPage) {
     });
 
     sudoPasswordCancelButton?.addEventListener('click', async () => {
-      if (activeSudoCommandId === null || !window.pywebview?.api?.respond_sudo_password) {
+      if (activeInputPrompt?.type !== 'sudo' || !window.pywebview?.api?.respond_sudo_password) {
         return;
       }
 
-      const commandId = activeSudoCommandId;
+      const commandId = activeInputPrompt.command_id;
       sudoPasswordCancelButton.disabled = true;
       sudoPasswordSubmitButton.disabled = true;
       try {
         const response = await window.pywebview.api.respond_sudo_password(commandId, null, true);
         if (response?.status === 'accepted' || response?.status === 'not_pending') {
-          closeSudoPasswordPrompt();
+          closeCommandInputPrompt();
         } else {
           sudoPasswordMessage.textContent = 'Unable to cancel the command. Please try again.';
         }
@@ -201,6 +221,32 @@ if (isChatPage) {
         sudoPasswordSubmitButton.disabled = false;
       }
     });
+
+    async function respondToCommandInput(responseValue) {
+      if (activeInputPrompt?.type !== 'confirmation' || !window.pywebview?.api?.respond_command_input) {
+        return;
+      }
+
+      const commandId = activeInputPrompt.command_id;
+      commandInputNoButton.disabled = true;
+      commandInputYesButton.disabled = true;
+      try {
+        const response = await window.pywebview.api.respond_command_input(commandId, responseValue);
+        if (response?.status === 'accepted' || response?.status === 'not_pending') {
+          closeCommandInputPrompt();
+        } else {
+          sudoPasswordMessage.textContent = 'Unable to send your response. Please try again.';
+        }
+      } catch {
+        sudoPasswordMessage.textContent = 'Unable to send your response. Please try again.';
+      } finally {
+        commandInputNoButton.disabled = false;
+        commandInputYesButton.disabled = false;
+      }
+    }
+
+    commandInputNoButton?.addEventListener('click', () => respondToCommandInput('n'));
+    commandInputYesButton?.addEventListener('click', () => respondToCommandInput('y'));
 
     function formatTime() {
       return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -1670,7 +1716,12 @@ if (isChatPage) {
       }
 
       if (event.type === 'sudo_password_required') {
-        queueSudoPasswordPrompt(event.data);
+        queueCommandInputPrompt('sudo', event.data);
+        return;
+      }
+
+      if (event.type === 'command_input_required') {
+        queueCommandInputPrompt('confirmation', event.data);
         return;
       }
 

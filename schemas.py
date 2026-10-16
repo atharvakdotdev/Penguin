@@ -1,16 +1,51 @@
 
 understand_schema = {
-  "type": "object",
-  "properties": {
-    "problem_statement": {
-      "type": "string",
-      "description": "A clear, concise, technically precise description of the user's problem, based only on the user query and provided logs."
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["problem_statement", "verification_command"],
+    "properties": {
+        "problem_statement": {
+            "type": "string",
+            "description": "A concise description of the user's problem based only on the query and logs."
+        },
+        "verification_command": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A safe, preferably read-only command to check whether the original problem is resolved."
+        }
     }
-  },
-  "required": [
-    "problem_statement"
-  ],
-  "additionalProperties": False
+}
+analyse_result_scheme = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "issue_resolved",
+        "solution_failed",
+        "failure_reason",
+        "hypothesis_contradicted",
+        "verification_inconclusive",
+        "reason"
+    ],
+    "properties": {
+        "issue_resolved": {
+            "type": "boolean"
+        },
+        "solution_failed": {
+            "type": "boolean"
+        },
+        "failure_reason": {
+            "type": ["string", "null"]
+        },
+        "hypothesis_contradicted": {
+            "type": "boolean"
+        },
+        "verification_inconclusive": {
+            "type": "boolean"
+        },
+        "reason": {
+            "type": "string"
+        }
+    }
 }
 hypothesis_schema1 = {
     "type": "object",

@@ -2,78 +2,126 @@
 
 import json
 from urllib import response
-from schemas import decideOnuserMsg, understand_schema,hypothesis_schema1,hypothesis_schema,command_test_schema , facts_schema,solver_scheme,verification_scheme,check_diagnosis_scheme,verification2_scheme
+from schemas import decideOnuserMsg,analyse_result_scheme, understand_schema,hypothesis_schema1,hypothesis_schema,command_test_schema , facts_schema,solver_scheme,verification_scheme,check_diagnosis_scheme,verification2_scheme
 from ollama import chat
 
 DEFAULT_STATE = "ProblemStatement"
 
 STATE_PROMPTS = {
 
-"understand": r"""PROBLEM STATEMENT GENERATOR
+"understand": r"""# PROBLEM STATEMENT GENERATOR
 
-ROLE
-You convert a user's query (and optional logs) into a single, stable problem
-statement. This statement May be revised later,
-Yet it must stand alone for the rest of the investigation.
+## ROLE
 
-INPUT
+You convert a user's query and optional logs into a single, stable problem statement and one verification command.
+
+The problem statement describes the user's reported problem. The verification command checks whether that problem is resolved.
+
+Both must remain grounded in the available information.
+
+## INPUT
+
 User Query:
 {{user_query}}
 
 Optional Logs:
 {{logs}}
 
-WHAT TO CAPTURE
-- What the user was trying to do.
-- What happened instead (the observed failure, including exact error text
-  if given).
-- Any technical context explicitly stated (paths, commands, tool names).
+Existing Problem Statement (if any):
+{{problem_statement}}
 
-Updating the Problem Statement
+Existing Verification Command (if any):
+{{verification_plan}}
 
-The problem statement must always represent the user's current understanding of the problem.
+## WHAT TO CAPTURE
 
-When a new user message changes, corrects, or invalidates information in the existing problem statement, update the problem statement to reflect the new information.
+### Problem Statement
+- What the user was trying to do, if explicitly stated.
+- What happened instead, including exact error text if provided.
+- Technical context explicitly stated, such as paths, commands, and tool names.
 
-Do not treat every new message as an addition. If new information conflicts with or replaces existing information, the outdated information must be removed or replaced.
+### Verification Command
+- A single command that checks the original reported problem.
+- Prefer simple, deterministic, read-only commands.
+- The command must check observable system state, not assume a particular fix has been applied.
+- If the problem is too ambiguous to verify reliably, choose the safest useful preliminary check without inventing a specific failure mode.
 
-If the new message only provides additional relevant information, incorporate it into the existing problem statement.
+## PROBLEM STATEMENT RULES
 
-The final problem statement should be a single coherent description of the current problem, not a history of the conversation.
+The problem statement must describe the reported problem, not its presumed cause.
 
-WHAT NOT TO DO (single rule, several forms)
-Do not go beyond what was said or logged. Concretely, that means:
-- No cause or explanation ("command not found" stays "command not found" —
-  never becomes "it's not in PATH").
-- No diagnosis, no hypotheses, no fixes, no commands, no recommendations.
-- No details you're inferring "for context" that weren't in the input.
+- Never invent a specific failure mode that the user did not report.
+- Do not turn a vague statement such as "X isn't working" into a specific claim such as "X cannot display version information."
+- Preserve the user's reported problem with minimal rewriting.
+- Do not introduce diagnoses, hypotheses, fixes, or recommendations.
+- Do not infer details that were not provided.
+- Treat user claims about system state as reported claims, not verified facts.
+- If user statements and logs conflict, state both sides plainly without choosing a side.
 
-TREAT USER CLAIMS AS CLAIMS, NOT FACTS
-Anything the user asserts about system state ("I made it executable",
-"the file exists") is a REPORTED claim, not verified truth. Write it as
-what the user reported, not as established fact. Do not upgrade it and do
-not silently verify or correct it either — later stages are responsible
-for checking claims against evidence.
+### Updating the Problem Statement
 
-CONFLICTS
-If the user's account and the logs disagree, state both sides plainly as
-an observed conflict. Do not resolve, guess, or pick a side.
+When updating an existing problem statement:
+- Replace outdated or corrected information.
+- Incorporate new relevant information.
+- Do not treat every new message as an addition.
+- Preserve a single coherent description rather than a conversation history.
 
-STYLE
-- Strip conversational filler, repetition, and frustration.
-- One to two sentences. No implementation detail that isn't tied to the
-  reported failure.
-- The statement must be understandable on its own, with no need to reread
-  the original message.
+## VERIFICATION COMMAND RULES
 
-BEFORE YOU ANSWER, CHECK
-- Did I add any "why" that wasn't explicitly given? Remove it.
-- Did I write a user claim as if verified? Rephrase as reported.
-- Is this still true if later evidence contradicts the user? (It should
-  describe only what was reported/observed, so it stays valid either way.)
+The verification command must check whether the original problem is resolved, independently of any proposed solution.
 
-OUTPUT
-Return only the JSON object matching the provided schema. No commentary.
+1. Generate the verification command before the solver attempts a fix.
+2. Do not assume a specific cause or solution.
+3. Prefer safe, read-only commands that do not modify system state.
+4. Do not assume that `--version` is relevant unless version information is part of the reported problem.
+5. Do not assume a misspelled command is the intended command. Use the literal name provided unless the intended name is established by the user or logs.
+6. Do not invent command names, paths, packages, services, or expected output.
+7. Do not use a command's exit status as proof of resolution unless it directly checks the relevant condition.
+8. If a problem is vague, select a useful preliminary check without pretending it fully verifies the problem.
+9. If no meaningful verification command can be generated safely, return an empty string for `verification_command`.
+10. Keep the existing verification command if it remains appropriate. Update it only when new information makes it unsuitable or insufficient.
+11. Do not change the verification command merely because a proposed solution failed.
+12. Generate exactly one command string, not a list of commands or a shell script.
+
+### Important Distinction
+
+Checking whether a command exists does not establish that the application works in every sense.
+
+For example, if the user reports "nivm isn't working", do not invent a version-information failure or assume the user meant `nvim`.
+
+A preliminary command such as `command -v nivm` can check whether the literal command is available. The problem statement must remain general because the specific failure is unknown.
+
+## WHAT NOT TO DO
+
+Do not:
+- Diagnose the problem.
+- Generate hypotheses.
+- Propose or execute fixes.
+- Include state-changing commands in the verification command.
+- Treat a successful fix command as proof of resolution.
+- Invent a specific failure mode to make the problem statement more precise.
+- Assume the user's intended command when the input is ambiguous.
+- Claim that a preliminary check proves more than it actually checks.
+
+## STYLE
+
+- Problem statement: one to two concise sentences.
+- Verification command: one command string.
+- Use minimal rewriting and preserve exact technical details.
+- Avoid conversational filler and unnecessary implementation details.
+
+## BEFORE YOU ANSWER, CHECK
+
+- Did I invent any failure mode that the user did not report?
+- Does the problem statement preserve ambiguity where necessary?
+- Does the verification command check the reported problem rather than an assumed cause?
+- Is the command safe and read-only?
+- Am I assuming a command name, flag, path, or expected output without evidence?
+- If the verification is only preliminary, have I avoided implying that it fully proves resolution?
+
+## OUTPUT
+
+Return only a JSON object matching the provided schema. No commentary.
 """,
 
 "hypothesis": r"""Hypothesis Generator
@@ -1387,8 +1435,34 @@ Remember:
 3. Use "reassess" when existing reasoning may need reconsideration.
 4. Never choose a new stage.
 5. Return ONLY JSON.
-"""
 
+"""
+,
+"analysis":"""You analyse the results of a Linux troubleshooting attempt.
+
+INPUT
+- Original problem statement
+- Current hypothesis
+- Solve command and its execution output
+- Verification command and its output
+
+TASK
+Determine whether the original issue is resolved, whether the attempted solution failed, and whether the evidence contradicts the current hypothesis.
+
+RULES
+1. Use only the supplied evidence. Never invent facts.
+2. The verification output is the primary evidence for whether the original issue is resolved.
+3. A successful solve command does not prove the issue is resolved.
+4. A failed solve command does not automatically mean the hypothesis is contradicted.
+5. If the verification command fails to execute, times out, or cannot establish the system state, mark verification as inconclusive.
+6. Mark the hypothesis as contradicted only when evidence conflicts with it. Lack of evidence is not contradiction.
+7. If the issue is verified as resolved, set issue_resolved to true and all other Boolean fields to false.
+8. If the issue remains unresolved, determine whether the solution failed and whether the hypothesis is contradicted. These may both be true.
+9. Set failure_reason to a concise explanation when solution_failed is true; otherwise use null.
+10. Keep reason concise and grounded in the evidence.
+11. Do not propose commands, fixes, or a new hypothesis.
+
+Return only JSON matching the provided schema."""
 }
 
 
@@ -1608,11 +1682,12 @@ class InvestigationState:
     def generateSolution(
             self,
             problem_statement,
+
             hypothesis,
             facts=[],
             relevant_command_outputs=[],
             model_name=[],
-            verification=""
+            verification="",
         ):
             facts = facts or []
             relevant_command_outputs = relevant_command_outputs or []
@@ -1633,7 +1708,62 @@ class InvestigationState:
     
                     Relevant Previous Command Outputs:
                     {relevant_command_outputs}
-                    
+                    RAG HANDLING
+--------------------------------------------------
+
+RAG contains previous Linux troubleshooting examples in the form:
+
+Problem → Solution
+
+RAG is KNOWLEDGE, not evidence about the current machine.
+
+A RAG result may help you determine HOW to solve the current problem, but it must NEVER be treated as proof that the same condition exists on the current system.
+
+For every RAG result, evaluate:
+
+1. Does the previous problem actually resemble the current problem?
+2. Does its underlying cause match the current confirmed hypothesis?
+3. Is the proposed solution compatible with the verified facts?
+4. Would applying that solution change the current system in the intended way?
+
+Only use a RAG solution when it is relevant to the current confirmed hypothesis.
+
+Do NOT copy a RAG solution merely because the wording of the problem is similar.
+
+RAG result:
+"nvim command not found → install neovim"
+
+DO NOT use the RAG solution.
+
+The RAG result describes a different underlying problem.
+
+Instead, use the confirmed hypothesis and verified facts to determine the appropriate solution.
+
+--------------------------------------------------
+RAG PRIORITY
+--------------------------------------------------
+
+When RAG contains a highly relevant previous solution:
+
+1. Use it as a starting point.
+2. Check it against the current facts.
+3. Check that it addresses the confirmed hypothesis.
+4. Adapt it if necessary.
+5. Do not introduce assumptions that came only from the RAG result.
+
+If RAG contains several results:
+
+- Prefer the result whose underlying problem and solution most closely match the current confirmed hypothesis.
+- Ignore irrelevant results.
+- Ignore results that contradict verified facts.
+- Do not combine unrelated RAG solutions.
+- Do not execute multiple RAG solutions.
+- Do not mention irrelevant RAG results.
+
+If RAG contains no useful result:
+
+Solve the problem using the confirmed hypothesis and verified facts.
+   ###rag output= 
                     previous: verification: {verification}
         """
                 },
@@ -1797,7 +1927,63 @@ outside the JSON.
         )
 
         return json.loads(content)
+    def AnalyseResult(
+        self,
+        model_name,
+        solve_command,
+        solve_output,
+        verification_command,
+        verification_output,
+        problem_statement,
+        hypothesis):
+        evidence = {
+            "problem_statement": problem_statement,
+            "current_hypothesis": hypothesis,
+            "solve_command": solve_command,
+            "solve_output": solve_output,
+            "verification_command": verification_command,
+            "verification_output": verification_output
+        }
 
+        msg = [
+            {
+                "role": "system",
+                "content": STATE_PROMPTS["analysis"]
+            },
+            {
+                "role": "user",
+                "content": json.dumps(evidence, ensure_ascii=False)
+            }
+        ]
+
+        response = self._stream_chat_response(
+            model=model_name,
+            messages=msg,
+            format=analyse_result_scheme,
+            think=False,
+            keep_alive=-1,
+            options={
+                "num_thread": 4
+            }
+        )
+
+        if response is False or response is None:
+            return None
+
+        content = (
+            response.get("message", {}).get("content", "")
+            if isinstance(response, dict)
+            else getattr(
+                getattr(response, "message", None),
+                "content",
+                ""
+            )
+        )
+
+        try:
+            return json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            return None
 
     def CheckHypothesisContradiction(self, model_name, command_outputs=[],hypothesis=[]):
                 

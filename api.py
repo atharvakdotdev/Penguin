@@ -4,6 +4,7 @@ import copy
 import errno
 import json
 import os
+import time
 import queue
 import subprocess
 import threading
@@ -22,7 +23,7 @@ import shlex
 
 from session_manager import SessionManager
 from states import DEFAULT_STATE, STATE_PROMPTS, InvestigationState
-
+from rag_ import get_solutions
 DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b").strip()
 
 INVESTIGATION_ORDER = [
@@ -72,6 +73,8 @@ class Api:
         self._pending_approvals = {}
         self._pending_sudo_passwords = {}
         self._pending_sudo_passwords_lock = threading.Lock()
+        self._pending_command_inputs = {}
+        self._pending_command_inputs_lock = threading.Lock()
         self._shutdown_event = threading.Event()
         self.active_process = None
         self.investigation = InvestigationState()
@@ -277,6 +280,11 @@ class Api:
                 request["cancelled"] = True
                 request["event"].set()
             self._pending_sudo_passwords.clear()
+        with self._pending_command_inputs_lock:
+            for request in self._pending_command_inputs.values():
+                request["cancelled"] = True
+                request["event"].set()
+            self._pending_command_inputs.clear()
 
         with self._active_runs_lock:
             for run in list(self._active_runs.values()):
@@ -697,6 +705,11 @@ class Api:
             return {"status": "ok"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
+    
+
+
+
+
 
     def open_main(self):
         """Navigate the webview back to the main chat page."""
@@ -751,6 +764,23 @@ class Api:
             request["event"].set()
 
         password = None
+        return {"status": "accepted"}
+
+    def respond_command_input(self, command_id, response):
+        """Deliver an explicit yes/no response to a command waiting on its PTY."""
+        normalized_response = str(response or "").strip().lower()
+        if normalized_response not in {"y", "n", "yes", "no"}:
+            return {"status": "invalid_response"}
+
+        normalized_response = "y" if normalized_response in {"y", "yes"} else "n"
+        with self._pending_command_inputs_lock:
+            request = self._pending_command_inputs.get(str(command_id or ""))
+            if request is None or request["event"].is_set():
+                return {"status": "not_pending"}
+
+            request["response"] = normalized_response
+            request["event"].set()
+
         return {"status": "accepted"}
 
     def stop_agent(self):
@@ -832,45 +862,109 @@ class Api:
 
         return not (last_entry_for_session.get("command") == command)
 
-    def run_command(self, command, use_sudo=False, command_id=None):
-        """Execute a command through a PTY and emit its result."""
+    def run_command(
+        self,
+        command,
+        use_sudo=False,
+        command_id=None,
+        interactive=False,
+        timeout=120,
+    ):
+        """Execute a command through a PTY and emit streaming + final results."""
+
         command_id = command_id or command
         approval = None
+        pid = None
+        fd = None
+        cancelled = False
+        timed_out = False
 
+        def cleanup_command_resources():
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+
+            if approval is not None:
+                self._pending_approvals.pop(
+                    command_id,
+                    None,
+                )
+
+            with self._pending_sudo_passwords_lock:
+                request = self._pending_sudo_passwords.pop(
+                    command_id,
+                    None,
+                )
+
+                if request is not None:
+                    password = request.get("password")
+
+                    if isinstance(password, bytearray):
+                        for i in range(len(password)):
+                            password[i] = 0
+
+                        password.clear()
+
+                    request["password"] = None
+
+            with self._pending_command_inputs_lock:
+                self._pending_command_inputs.pop(command_id, None)
+
+        # ---------------------------------------------------------
+        # Command approval
+        # ---------------------------------------------------------
         if not self.auto_allow:
             approval = self._pending_approvals.setdefault(
                 command_id, threading.Event()
             )
+
             try:
                 while not approval.wait(timeout=0.5):
                     if self._shutdown_event.is_set():
                         return {
                             "success": False,
                             "output": "",
-                            "error": "Command approval cancelled because the investigation stopped.",
+                            "error": (
+                                "Command approval cancelled because "
+                                "the investigation stopped."
+                            ),
                             "return_code": -1,
                         }
             finally:
                 self._pending_approvals.pop(command_id, None)
 
-        pid = None
-        fd = None
-        cancelled = False
-
-        # Automatically use sudo for chmod commands 
-        try: 
-            parts = shlex.split(command) 
-            if parts and parts[0] == "chmod": 
-                use_sudo = True 
-        except ValueError: 
-            pass
+        # ---------------------------------------------------------
+        # Automatically use sudo for chmod
+        # ---------------------------------------------------------
         try:
-            direct_sudo_command = bool(re.match(r"^\s*sudo(?:\s|$)", command))
+            parts = shlex.split(command)
+
+            if parts and parts[0] == "chmod":
+                use_sudo = True
+
+        except ValueError:
+            pass
+
+        try:
+            original_command = command
+
+            direct_sudo_command = bool(
+                re.match(r"^\s*sudo(?:\s|$)", command)
+            )
+
             is_sudo_command = use_sudo or direct_sudo_command
+
             if is_sudo_command:
                 if not direct_sudo_command:
-                    command = f"sudo -p 'PENGUIN_SUDO_PROMPT' {command}"
-                elif not re.match(r"^\s*sudo\s+-p(?:\s|$)", command):
+                    command = (
+                        f"sudo -p 'PENGUIN_SUDO_PROMPT' {command}"
+                    )
+                elif not re.match(
+                    r"^\s*sudo\s+-p(?:\s|$)",
+                    command,
+                ):
                     command = re.sub(
                         r"^(\s*sudo)\b",
                         r"\1 -p 'PENGUIN_SUDO_PROMPT'",
@@ -878,64 +972,284 @@ class Api:
                         count=1,
                     )
 
+            # -----------------------------------------------------
+            # Start process
+            # -----------------------------------------------------
+            start_time = time.monotonic()
+
             pid, fd = pty.fork()
 
             if pid == 0:
-                os.execl("/bin/bash", "bash", "-c", command)
+                os.execl(
+                    "/bin/bash",
+                    "bash",
+                    "-c",
+                    command,
+                )
 
-            output = b""
-            process_output_received = False
-            sudo_password_required = False
-            handled_sudo_prompts = 0
+            output = bytearray()
             return_code = None
+            sudo_prompt_seen = False
+            last_confirmation_prompt_start = -1
 
+            # Interactive commands get a short grace period after
+            # producing output so programs such as nvim can be
+            # considered successfully launched.
+            interactive_grace = 1.0
+            interactive_output_time = None
+
+            # -----------------------------------------------------
+            # Read PTY
+            # -----------------------------------------------------
             while True:
-                ready, _, _ = select.select([fd], [], [], 0.1)
+
+                # ---------------------------------------------
+                # Global timeout
+                # ---------------------------------------------
+                elapsed = time.monotonic() - start_time
+
+                if elapsed >= timeout:
+                    timed_out = True
+
+                    try:
+                        os.killpg(pid, signal.SIGTERM)
+                    except OSError:
+                        try:
+                            os.kill(pid, signal.SIGTERM)
+                        except OSError:
+                            pass
+
+                    try:
+                        os.waitpid(pid, 0)
+                    except ChildProcessError:
+                        pass
+
+                    return_code = -1
+                    pid = None
+                    break
+
+                # ---------------------------------------------
+                # Check for PTY data
+                # ---------------------------------------------
+                ready, _, _ = select.select(
+                    [fd],
+                    [],
+                    [],
+                    0.1,
+                )
 
                 if fd in ready:
                     try:
                         data = os.read(fd, 4096)
 
-                        if data:
-                            output += data
-                            process_output_received = True
+                    except OSError as error:
+                        if error.errno == errno.EIO:
+                            data = b""
+                        else:
+                            raise
 
-                            text = data.decode(errors="replace")
-                            prompt_count = output.count(b"PENGUIN_SUDO_PROMPT")
-                            prompt_count += len(re.findall(
-                                rb"(?:\[sudo[^\]]*\]\s*)?(?:password|passphrase)\s*:",
-                                output,
-                                re.IGNORECASE,
-                            ))
-                            prompt_detected = prompt_count > handled_sudo_prompts
+                    if data:
+                        output.extend(data)
+
+                        text = data.decode(errors="replace")
+
+                        # -------------------------------------
+                        # STREAMING EVENT
+                        #
+                        # This is NOT a success/failure result.
+                        # -------------------------------------
+                        if self.windowobj is not None:
+                            self.sendEvent(
+                                [{
+                                    "command": original_command,
+                                    "output": text,
+                                    "timestamp": datetime.now(
+                                        timezone.utc
+                                    ).isoformat(),
+                                    "session_id": (
+                                        self._event_session_id()
+                                    ),
+                                }],
+                                "command_output_stream",
+                            )
+
+                        # -------------------------------------
+                        # SUDO PROMPT
+                        # -------------------------------------
+                        if is_sudo_command and not sudo_prompt_seen:
+
+                            prompt_detected = (
+                                b"PENGUIN_SUDO_PROMPT" in data
+                                or re.search(
+                                    rb"(?:\[sudo[^\]]*\]\s*)?"
+                                    rb"(?:password|passphrase)\s*:",
+                                    data,
+                                    re.IGNORECASE,
+                                )
+                                is not None
+                            )
 
                             if prompt_detected:
-                                sudo_password_required = True
-                                handled_sudo_prompts = prompt_count
+                                sudo_prompt_seen = True
 
-                            if self.windowobj is not None:
-                                self.sendEvent([
-                                    {
-                                        "command": command,
-                                        "success": True,
-                                        "output": text,
-                                        "error": "",
-                                        "return_code": None,
-                                        "timestamp": datetime.now(
-                                            timezone.utc
-                                        ).isoformat(),
-                                        "session_id": self._event_session_id(),
-                                    }
-                                ], "command_outputs")
-
-                            if prompt_detected:
                                 request = {
                                     "event": threading.Event(),
                                     "password": None,
                                     "cancelled": False,
                                 }
+
                                 with self._pending_sudo_passwords_lock:
-                                    self._pending_sudo_passwords[command_id] = request
+                                    self._pending_sudo_passwords[
+                                        command_id
+                                    ] = request
+
+                                if self.windowobj is None:
+                                    request["cancelled"] = True
+                                    request["event"].set()
+
+                                else:
+                                    self.sendEvent(
+                                        {
+                                            "command_id": command_id,
+                                            "incorrect_password": (
+                                                b"sorry, try again"
+                                                in output.lower()
+                                                or
+                                                b"incorrect password"
+                                                in output.lower()
+                                            ),
+                                        },
+                                        "sudo_password_required",
+                                    )
+
+                                # Wait for password or shutdown.
+                                while not request["event"].wait(
+                                    timeout=0.1
+                                ):
+                                    if (
+                                        self._shutdown_event.is_set()
+                                    ):
+                                        request["cancelled"] = True
+                                        break
+
+                                    if (
+                                        time.monotonic()
+                                        - start_time
+                                        >= timeout
+                                    ):
+                                        request["cancelled"] = True
+                                        timed_out = True
+                                        break
+
+                                if self._shutdown_event.is_set():
+                                    request["cancelled"] = True
+
+                                password = request.get("password")
+
+                                if (
+                                    request["cancelled"]
+                                    or password is None
+                                ):
+                                    cancelled = True
+
+                                else:
+                                    password.append(10)
+
+                                    password_view = memoryview(
+                                        password
+                                    )
+
+                                    try:
+                                        offset = 0
+
+                                        while offset < len(
+                                            password_view
+                                        ):
+                                            offset += os.write(
+                                                fd,
+                                                password_view[offset:],
+                                            )
+
+                                    finally:
+                                        password_view.release()
+
+                                        for i in range(len(password)):
+                                            password[i] = 0
+
+                                        password.clear()
+                                        request["password"] = None
+
+                                # Clean sudo request.
+                                with self._pending_sudo_passwords_lock:
+                                    if (
+                                        self._pending_sudo_passwords.get(
+                                            command_id
+                                        )
+                                        is request
+                                    ):
+                                        self._pending_sudo_passwords.pop(
+                                            command_id,
+                                            None,
+                                        )
+
+                                if cancelled:
+                                    try:
+                                        os.killpg(
+                                            pid,
+                                            signal.SIGTERM,
+                                        )
+                                    except OSError:
+                                        try:
+                                            os.kill(
+                                                pid,
+                                                signal.SIGTERM,
+                                            )
+                                        except OSError:
+                                            pass
+
+                                    try:
+                                        os.waitpid(pid, 0)
+                                    except ChildProcessError:
+                                        pass
+
+                                    return_code = -1
+                                    pid = None
+                                    break
+
+                        # -------------------------------------
+                        # Explicit yes/no confirmation prompts
+                        # -------------------------------------
+                        output_tail = bytes(output[-512:])
+                        confirmation_match = re.search(
+                            rb"\[\s*[yY]/[nN]\s*\]\s*$",
+                            output_tail,
+                        )
+
+                        if confirmation_match is not None:
+                            prompt_start = (
+                                len(output)
+                                - len(output_tail)
+                                + confirmation_match.start()
+                            )
+
+                            if prompt_start > last_confirmation_prompt_start:
+                                last_confirmation_prompt_start = prompt_start
+                                prompt_text = (
+                                    output_tail.decode(errors="replace")
+                                    .replace("\r", "\n")
+                                    .split("\n")[-1]
+                                    .strip()
+                                )[-300:]
+                                request = {
+                                    "event": threading.Event(),
+                                    "response": None,
+                                    "cancelled": False,
+                                }
+
+                                with self._pending_command_inputs_lock:
+                                    self._pending_command_inputs[
+                                        command_id
+                                    ] = request
 
                                 if self.windowobj is None:
                                     request["cancelled"] = True
@@ -944,12 +1258,9 @@ class Api:
                                     self.sendEvent(
                                         {
                                             "command_id": command_id,
-                                            "incorrect_password": (
-                                                b"sorry, try again" in output.lower()
-                                                or b"incorrect password" in output.lower()
-                                            ),
+                                            "prompt": prompt_text,
                                         },
-                                        "sudo_password_required",
+                                        "command_input_required",
                                     )
 
                                 while not request["event"].wait(timeout=0.1):
@@ -957,35 +1268,29 @@ class Api:
                                         request["cancelled"] = True
                                         break
 
+                                    if time.monotonic() - start_time >= timeout:
+                                        request["cancelled"] = True
+                                        timed_out = True
+                                        break
+
                                 if self._shutdown_event.is_set():
                                     request["cancelled"] = True
 
-                                password = request.get("password")
-                                if request["cancelled"] or password is None:
+                                response = request.get("response")
+                                if request["cancelled"] or response is None:
                                     cancelled = True
                                 else:
-                                    password.append(10)
-                                    password_view = memoryview(password)
-                                    try:
-                                        offset = 0
-                                        while offset < len(password_view):
-                                            offset += os.write(fd, password_view[offset:])
-                                    finally:
-                                        password_view.release()
-                                        for index in range(len(password)):
-                                            password[index] = 0
-                                        password.clear()
-                                        request["password"] = None
+                                    response_bytes = response.encode("ascii") + b"\n"
+                                    offset = 0
+                                    while offset < len(response_bytes):
+                                        offset += os.write(fd, response_bytes[offset:])
 
-                                if cancelled and isinstance(password, bytearray):
-                                    for index in range(len(password)):
-                                        password[index] = 0
-                                    password.clear()
-                                    request["password"] = None
-
-                                with self._pending_sudo_passwords_lock:
-                                    if self._pending_sudo_passwords.get(command_id) is request:
-                                        self._pending_sudo_passwords.pop(command_id, None)
+                                with self._pending_command_inputs_lock:
+                                    if (
+                                        self._pending_command_inputs.get(command_id)
+                                        is request
+                                    ):
+                                        self._pending_command_inputs.pop(command_id, None)
 
                                 if cancelled:
                                     try:
@@ -995,109 +1300,122 @@ class Api:
                                             os.kill(pid, signal.SIGTERM)
                                         except OSError:
                                             pass
+
                                     try:
                                         os.waitpid(pid, 0)
                                     except ChildProcessError:
                                         pass
+
+                                    return_code = -1
                                     pid = None
                                     break
 
-                    except OSError as error:
-                        if error.errno == errno.EIO:
-                            break
-                        raise
+                        # -------------------------------------
+                        # Explicit interactive command handling
+                        # -------------------------------------
+                        if interactive:
+                            interactive_output_time = (
+                                time.monotonic()
+                            )
 
-                finished_pid, status = os.waitpid(
-                    pid, os.WNOHANG
-                )
+                # -------------------------------------------------
+                # Check whether process exited
+                # -------------------------------------------------
+                if pid is not None:
+                    finished_pid, status = os.waitpid(
+                        pid,
+                        os.WNOHANG,
+                    )
 
-                if finished_pid == pid:
-                    return_code = os.waitstatus_to_exitcode(status)
-                    pid = None
-                    break
+                    if finished_pid == pid:
+                        return_code = (
+                            os.waitstatus_to_exitcode(status)
+                        )
+                        pid = None
+                        break
 
-                # Commands such as nvim can be considered successful if
-                # they produce output and remain running.
+                # -------------------------------------------------
+                # Interactive command:
                 #
-                # sudo is different: output may mean it is waiting for
-                # authentication, so do not terminate it.
-                if process_output_received and not sudo_password_required and not is_sudo_command:
-                    os.kill(pid, signal.SIGTERM)
+                # If it successfully starts and stays alive after
+                # producing output, treat launch as success.
+                # -------------------------------------------------
+                if (
+                    interactive
+                    and interactive_output_time is not None
+                    and not is_sudo_command
+                    and (
+                        time.monotonic()
+                        - interactive_output_time
+                        >= interactive_grace
+                    )
+                ):
+                    try:
+                        os.killpg(pid, signal.SIGTERM)
+                    except OSError:
+                        try:
+                            os.kill(
+                                pid,
+                                signal.SIGTERM,
+                            )
+                        except OSError:
+                            pass
 
                     try:
                         os.waitpid(pid, 0)
                     except ChildProcessError:
                         pass
+
+                    return_code = 0
                     pid = None
-
-                    output_text = output.decode(errors="replace")
-
-                    self._record_command(
-                        command,
-                        True,
-                        output_text
-                    )
-                    self._remove_command_from_history(command)
-
-                    return {
-                        "success": True,
-                        "output": "Command executed successfully.",
-                        "error": "",
-                        "return_code": 0,
-                    }
-
-            if cancelled:
-                output_text = output.decode(errors="replace")
-                self._record_command(command, False, output_text)
-                self._remove_command_from_history(command)
-                return {
-                    "success": False,
-                    "output": output_text,
-                    "error": "Administrator authentication was cancelled.",
-                    "return_code": -1,
-                }
-
-            if return_code is None:
-                try:
-                    _, status = os.waitpid(pid, 0)
-                    return_code = os.waitstatus_to_exitcode(status)
-                except ChildProcessError:
-                    return_code = -1
-                pid = None
-
-            output_text = output.decode(errors="replace")
-            success = return_code == 0
-
-            self._record_command(
-                command,
-                success,
-                output_text
-            )
-            self._remove_command_from_history(command)
-
-            return {
-                "success": success,
-                "output": output_text,
-                "error": "" if success else output_text,
-                "return_code": return_code,
-            }
+                    break
 
         except Exception as e:
             error = str(e)
 
             if pid is not None:
                 try:
-                    os.killpg(pid, signal.SIGTERM)
+                    os.killpg(
+                        pid,
+                        signal.SIGTERM,
+                    )
                 except OSError:
                     pass
+
                 try:
                     os.waitpid(pid, 0)
                 except ChildProcessError:
                     pass
+
                 pid = None
 
-            self._record_command(command, False, error)
+            self._record_command(
+                command,
+                False,
+                error,
+            )
             self._remove_command_from_history(command)
+
+            # Final UI event even on exception.
+            if self.windowobj is not None:
+                self.sendEvent(
+                    [{
+                        "command": original_command
+                        if "original_command" in locals()
+                        else command,
+                        "success": False,
+                        "output": "",
+                        "error": error,
+                        "return_code": -1,
+                        "timestamp": datetime.now(
+                            timezone.utc
+                        ).isoformat(),
+                        "session_id": self._event_session_id(),
+                    }],
+                    "command_outputs",
+                )
+
+            cleanup_command_resources()
 
             return {
                 "success": False,
@@ -1106,23 +1424,68 @@ class Api:
                 "return_code": -1,
             }
 
-        finally:
-            if fd is not None:
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
-            if approval is not None:
-                self._pending_approvals.pop(command_id, None)
-            with self._pending_sudo_passwords_lock:
-                request = self._pending_sudo_passwords.pop(command_id, None)
-                if request is not None:
-                    password = request.get("password")
-                    if isinstance(password, bytearray):
-                        for index in range(len(password)):
-                            password[index] = 0
-                        password.clear()
-                    request["password"] = None
+        # ---------------------------------------------------------
+        # Final result
+        # ---------------------------------------------------------
+        output_text = output.decode(errors="replace")
+
+        if timed_out:
+            success = False
+            error = (
+                f"Command timed out after {timeout} seconds."
+            )
+
+        elif cancelled:
+            success = False
+            error = "Command input was cancelled."
+
+        else:
+            success = return_code == 0
+            error = "" if success else output_text
+
+        # ---------------------------------------------------------
+        # Record history
+        # ---------------------------------------------------------
+        self._record_command(
+            command,
+            success,
+            output_text,
+        )
+        self._remove_command_from_history(command)
+
+        cleanup_command_resources()
+
+        # ---------------------------------------------------------
+        # FINAL UI EVENT
+        #
+        # This is the authoritative command result.
+        # ---------------------------------------------------------
+        if self.windowobj is not None:
+            self.sendEvent(
+                [{
+                    "command": original_command,
+                    "success": success,
+                    "output": output_text,
+                    "error": error,
+                    "return_code": return_code,
+                    "timestamp": datetime.now(
+                        timezone.utc
+                    ).isoformat(),
+                    "session_id": self._event_session_id(),
+                }],
+                "command_outputs",
+            )
+        return {
+            "success": success,
+            "output": output_text,
+            "error": error,
+            "return_code": return_code,
+        }
+
+        # ---------------------------------------------------------
+        # Cleanup
+        # ---------------------------------------------------------
+        
     def sendEvent(self,data,Data_type):
         session_id = self._event_session_id()
         event_obj = {
@@ -1189,6 +1552,36 @@ class Api:
         )
         if self.evaluation is None:
             return
+        """so the bug is this. 
+        Ai generates a solve command but if it fails it dosent know why it failed.
+         and it dosent have a clear path forwar. command failing dosent mean that it must contradict the hypostheis. nor dose it mean that it will. there fore
+        there need to be a system that doe the combined work of check hypotheisis contradiction. find why the command failed and generate a verificaiton command. 
+        
+        or there alsocould be a addition fo functionality at the problemstatenmt level that generates a verificaton command
+        this command auto maticly gets executed when the soving finished this saves the time that is required to gerate a verificaiton commadn everytime.
+        
+        solve 
+        if fail:
+            checkhypcontra: 
+            if true:
+                update hyp
+            else: 
+                solve
+
+
+        if not fail:
+            verifi: 
+                if fails: 
+                    solve
+                else : 
+                    issue resolved 
+        
+        
+        
+        """
+
+
+
         if self.evaluation.get("solved") is True:
             self.state = "issueresolved"
             self.controller(next_step="issueresolved")
@@ -1209,7 +1602,6 @@ class Api:
 
     def solver(self):
         print(f"[model] Solve: {self.current_chat_model}", flush=True)
-
         self.solution = self.investigation.generateSolution(
         problem_statement=self.problem_statenment,
         facts=self.facts,
@@ -1217,8 +1609,10 @@ class Api:
         verification=self.evaluation,
         relevant_command_outputs=self.command_outputs,hypothesis=self.hypothesis
         )
+
         if self.solution is None:
             return
+        
         step = self.solution.get("step") if isinstance(self.solution, dict) else None
         if isinstance(step, dict):
             step.setdefault("command_id", str(uuid4()))
@@ -1230,6 +1624,29 @@ class Api:
                     Data_type="solution"
                 )
         self.result = self.run_command(step["command"], command_id=step.get("command_id"))
+
+        if self.verification is None:
+            return
+        
+        step = self.verification if isinstance(self.verification, dict) else None
+
+        if isinstance(step, dict):
+            step.setdefault("command_id", str(uuid4()))
+            if not self.auto_allow:
+                self._pending_approvals.setdefault(step["command_id"], threading.Event())
+
+        self.sendEvent(
+            data={"step": step, "auto_allow": self.auto_allow},
+            Data_type="verification",
+        )
+        verification_result = self.run_command(step["command"], command_id=step.get("command_id"))
+        print(verification_result)
+
+
+
+
+
+
 
         if self.result["return_code"] == 0:
             self.state = "Verification"
@@ -1407,6 +1824,8 @@ class Api:
         run._pending_approvals = self._pending_approvals
         run._pending_sudo_passwords = self._pending_sudo_passwords
         run._pending_sudo_passwords_lock = self._pending_sudo_passwords_lock
+        run._pending_command_inputs = self._pending_command_inputs
+        run._pending_command_inputs_lock = self._pending_command_inputs_lock
         run._shutdown_event = self._shutdown_event
         
         run.investigation = self.investigation
@@ -1461,9 +1880,10 @@ class Api:
             if self.problem_statenment is None:
                 return
 
-            
-            self.problem_statenment = json.loads(self.problem_statenment)
+            self.verification = self.problem_statenment.get("verification_command") if isinstance(self.problem_statenment, dict) else None
 
+            self.problem_statenment = json.loads(self.problem_statenment)
+            print(self.problem_statenment)
             self.sendEvent(
                 data=self.problem_statenment,
                 Data_type="Problem_Statement"
@@ -1562,3 +1982,23 @@ class Api:
 
                 self.state = AFFECTED_TO_STATE[highest_affected]
                 self.controller(next_step=self.state)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
