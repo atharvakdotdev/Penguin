@@ -872,7 +872,7 @@ class Api:
         use_sudo=False,
         command_id=None,
         interactive=False,
-        timeout=120,
+        timeout=60,
     ):
         """Execute a command through a PTY and emit streaming + final results."""
 
@@ -999,7 +999,7 @@ class Api:
             # Interactive commands get a short grace period after
             # producing output so programs such as nvim can be
             # considered successfully launched.
-            interactive_grace = 1.0
+            interactive_grace = 10.0
             interactive_output_time = None
 
             # -----------------------------------------------------

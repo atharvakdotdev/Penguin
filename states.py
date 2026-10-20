@@ -1948,6 +1948,7 @@ outside the JSON.
         )
 
         return json.loads(content)
+    
     def AnalyseResult(
         self,
         model_name,
@@ -2006,43 +2007,7 @@ outside the JSON.
         except (json.JSONDecodeError, TypeError):
             return None
 
-    def CheckHypothesisContradiction(self, model_name, command_outputs=[],hypothesis=[]):
-                
-                msg = [
-                    {
-                        "role": "system",
-                        "content": f"{STATE_PROMPTS['CheckHypothesisContradiction']}"
-                    },
-                    {
-                        "role": "system",
-                        "content": f"Command outputs: {command_outputs} hypothesis: {hypothesis}"
-                    },
-                    
-                ]
-        
-                response = self._stream_chat_response(
-                    model=model_name,
-                    messages=msg,
-                    format=check_diagnosis_scheme,
-                    think=False,
-                    keep_alive=-1,
-                    options={
-                        "num_thread": 4
-                    }
-                )
-                if response is False or response is None:
-                 return
-                content = (
-                    response.get("message", {}).get("content", "")
-                    if isinstance(response, dict)
-                    else getattr(
-                        getattr(response, "message", None),
-                        "content",
-                        ""
-                    )
-                )
-        
-                return json.loads(content)
+  
     def decideOnUserMsg(self, model_name,hypothesis=[],user_msg="",facts=[]):
                     
                     msg = [
