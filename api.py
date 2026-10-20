@@ -62,6 +62,7 @@ class Api:
         self.evaluation =[]
         self.contradistion_bool = False
         self.solution=[]
+        self.analysis_context = None
         self.chat_history = []
         self.runtime_state = {}
         self.run = None
@@ -124,6 +125,7 @@ class Api:
         self.evaluation = []
         self.contradistion_bool = False
         self.solution = []
+        self.analysis_context = None
 
         self.chat_history = []
         self.runtime_state = {}
@@ -317,6 +319,7 @@ class Api:
             "evaluation": self.evaluation,
             "contradistion_bool": self.contradistion_bool,
             "solution": self.solution,
+            "analysis_context": self.analysis_context,
             "chat_history": self.chat_history,
             "continue_event": self.continue_event,
             "auto_allow": self.auto_allow,
@@ -518,6 +521,7 @@ class Api:
         self.evaluation = state_payload.get("evaluation", [])
         self.contradistion_bool = bool(state_payload.get("contradistion_bool", False))
         self.solution = state_payload.get("solution", [])
+        self.analysis_context = state_payload.get("analysis_context")
         self.chat_started = bool(state_payload.get("chat_started", len(self.chat_history) > 0))
 
         return {
@@ -1503,92 +1507,6 @@ class Api:
         if self.windowobj is not None:
             self.windowobj.evaluate_js(f"window.handleInvestigationEvent({json.dumps(event_obj)})")
 
-            
-    def contradictionloop(self):
-        print(f"[model] CheckHypothesisContradiction: {self.current_chat_model}", flush=True)
-
-        self.contradistion_bool= self.investigation.CheckHypothesisContradiction(
-            model_name=self.current_chat_model,
-            command_outputs=self.result,
-            hypothesis=self.hypothesis
-        )
-        if self.contradistion_bool is None:
-            return
-        if self.contradistion_bool["contradicts"]:
-            self.state = "HypothesisUpdate"
-            self.controller(next_step="HypothesisUpdate")
-        else:
-            self.state = "Solve"
-            self.controller(next_step="Solve")
-
-    def verificationloop(self):
-        print(f"[model] Verification command: {self.current_chat_model}", flush=True)
-        self.verification = self.investigation.verifiRemediation(
-            problem_statement=self.problem_statenment,
-            model_name=self.current_chat_model,
-            command_outputs=self.command_outputs,
-        )
-        if self.verification is None:
-            return
-        step = self.verification.get("step") if isinstance(self.verification, dict) else None
-
-        if isinstance(step, dict):
-            step.setdefault("command_id", str(uuid4()))
-            if not self.auto_allow:
-                self._pending_approvals.setdefault(step["command_id"], threading.Event())
-
-        self.sendEvent(
-            data={"step": step, "auto_allow": self.auto_allow},
-            Data_type="verification",
-        )
-        verification_result = self.run_command(step["command"], command_id=step.get("command_id"))
-
-        print(f"[model] Verification evaluator: {self.current_chat_model}", flush=True)
-
-        self.evaluation = self.investigation.verifi(
-            problem_statement=self.problem_statenment,
-            model_name=self.current_chat_model,
-            command_outputs=verification_result,
-        )
-        if self.evaluation is None:
-            return
-        """so the bug is this. 
-        Ai generates a solve command but if it fails it dosent know why it failed.
-         and it dosent have a clear path forwar. command failing dosent mean that it must contradict the hypostheis. nor dose it mean that it will. there fore
-        there need to be a system that doe the combined work of check hypotheisis contradiction. find why the command failed and generate a verificaiton command. 
-        
-        or there alsocould be a addition fo functionality at the problemstatenmt level that generates a verificaton command
-        this command auto maticly gets executed when the soving finished this saves the time that is required to gerate a verificaiton commadn everytime.
-        
-        solve 
-        if fail:
-            checkhypcontra: 
-            if true:
-                update hyp
-            else: 
-                solve
-
-
-        if not fail:
-            verifi: 
-                if fails: 
-                    solve
-                else : 
-                    issue resolved 
-        
-        
-        
-        """
-
-
-
-        if self.evaluation.get("solved") is True:
-            self.state = "issueresolved"
-            self.controller(next_step="issueresolved")
-        else:
-            self.state = "Solve"
-            self.controller(next_step="Solve")
-
     def issueResolved(self):
         self.sendEvent(
             data={
@@ -1602,12 +1520,14 @@ class Api:
 
     def solver(self):
         print(f"[model] Solve: {self.current_chat_model}", flush=True)
+
         self.solution = self.investigation.generateSolution(
         problem_statement=self.problem_statenment,
         facts=self.facts,
         model_name=self.current_chat_model,
         verification=self.evaluation,
         relevant_command_outputs=self.command_outputs,hypothesis=self.hypothesis
+        
         )
 
         if self.solution is None:
@@ -1623,12 +1543,12 @@ class Api:
                     data={"step": step, "auto_allow": self.auto_allow, **({} if not isinstance(self.solution, dict) else {k: v for k, v in self.solution.items() if k != "step"})},
                     Data_type="solution"
                 )
+        solve_command = step["command"]
         self.result = self.run_command(step["command"], command_id=step.get("command_id"))
 
-        if self.verification is None:
-            return
-        
         step = self.verification if isinstance(self.verification, dict) else None
+        if not isinstance(step, dict) or not step.get("command"):
+            return
 
         if isinstance(step, dict):
             step.setdefault("command_id", str(uuid4()))
@@ -1640,20 +1560,58 @@ class Api:
             Data_type="verification",
         )
         verification_result = self.run_command(step["command"], command_id=step.get("command_id"))
-        print(verification_result)
 
+        self.analysis_context = {
+            "solve_command": solve_command,
+            "solve_output": self.result,
+            "verification_command": step["command"],
+            "verification_output": verification_result,
+        }
+        self.state = "AnalyseResult"
+        self.controller(next_step=self.state)
 
+    def AnalyseResult(self):
+        context = self.analysis_context
+        if not isinstance(context, dict):
+            return
 
+        self.analysis = self.investigation.AnalyseResult(
+            model_name=self.current_chat_model,
+            solve_command=context["solve_command"],
+            solve_output=context["solve_output"],
+            verification_command=context["verification_command"],
+            verification_output=context["verification_output"],
+            problem_statement=self.problem_statenment,
+            hypothesis=self.hypothesis,
+        )
+        if self.analysis is None:
+            return
 
+        self.sendEvent(data=self.analysis, Data_type="analysis_result")
+        print(self.analysis)
+        if self.analysis["issue_resolved"]:
+            self.state = "issueresolved"
+            self.controller(next_step="issueresolved")
+        elif self.analysis["hypothesis_contradicted"]:
+            self.command_outputs = list(self.command_outputs or []) + [
+                {
+                    "command": context["solve_command"],
+                    "result": context["solve_output"],
+                },
+                {
+                    "command": context["verification_command"],
+                    "result": context["verification_output"],
+                },
+            ]
+            self.state = "HypothesisUpdate"
+            self.controller(next_step="HypothesisUpdate")
 
+        elif self.analysis['solution_failed']:
+            self.state = "Solve"
+            self.controller(next_step="Solve")
 
+        print(context["verification_output"])
 
-        if self.result["return_code"] == 0:
-            self.state = "Verification"
-            self.controller(next_step="Verification")
-        else:
-            self.state = "CheckHypothesisContradiction"
-            self.controller(next_step="CheckHypothesisContradiction")
     
     def UpdateHypothesis(self):
         print(f"[model] UpdateHypothesis: {self.current_chat_model}", flush=True)
@@ -1880,9 +1838,9 @@ class Api:
             if self.problem_statenment is None:
                 return
 
-            self.verification = self.problem_statenment.get("verification_command") if isinstance(self.problem_statenment, dict) else None
-
             self.problem_statenment = json.loads(self.problem_statenment)
+            verification_command = self.problem_statenment.get("verification_command")
+            self.verification = {"command": verification_command} if verification_command else None
             print(self.problem_statenment)
             self.sendEvent(
                 data=self.problem_statenment,
@@ -1950,6 +1908,9 @@ class Api:
         elif self.state == "Solve":
             self.solver()
 
+        elif self.state == "AnalyseResult":
+            self.AnalyseResult()
+
         elif self.state == "Verification":
             self.verificationloop()
 
@@ -1997,8 +1958,3 @@ class Api:
 
 
 
-
-
-
-
-                

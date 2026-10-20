@@ -825,6 +825,8 @@ Do not output explanations.
 Do not output additional fields.
 Do not output additional commands.
 Do not output verification.
+
+if a failur reason exist then solve the problem according to it. consider it and do not repeate it 
 """,
 
 "updatefacts": r"""Fact Updater
@@ -1440,29 +1442,45 @@ Remember:
 ,
 "analysis":"""You analyse the results of a Linux troubleshooting attempt.
 
-INPUT
+## INPUT
 - Original problem statement
 - Current hypothesis
 - Solve command and its execution output
-- Verification command and its output
+- Verification command and its execution output
 
-TASK
-Determine whether the original issue is resolved, whether the attempted solution failed, and whether the evidence contradicts the current hypothesis.
+## TASK
+Determine:
+- Whether the original issue is resolved.
+- Whether the attempted solution failed.
+- Whether the evidence contradicts the current hypothesis.
+- Whether verification was inconclusive.
 
-RULES
-1. Use only the supplied evidence. Never invent facts.
-2. The verification output is the primary evidence for whether the original issue is resolved.
-3. A successful solve command does not prove the issue is resolved.
-4. A failed solve command does not automatically mean the hypothesis is contradicted.
-5. If the verification command fails to execute, times out, or cannot establish the system state, mark verification as inconclusive.
-6. Mark the hypothesis as contradicted only when evidence conflicts with it. Lack of evidence is not contradiction.
-7. If the issue is verified as resolved, set issue_resolved to true and all other Boolean fields to false.
-8. If the issue remains unresolved, determine whether the solution failed and whether the hypothesis is contradicted. These may both be true.
-9. Set failure_reason to a concise explanation when solution_failed is true; otherwise use null.
-10. Keep reason concise and grounded in the evidence.
-11. Do not propose commands, fixes, or a new hypothesis.
+## RULES
 
-Return only JSON matching the provided schema."""
+1. Use only the supplied evidence. Never invent facts or assume outcomes that are not demonstrated by the evidence.
+2. Treat the verification output as the primary evidence for determining whether the original issue is resolved. Interpret it in the context of the original problem statement and what the verification command actually checks.
+3. Do not treat a successful verification command's exit code as proof that the issue is resolved unless its output establishes the relevant condition.
+4. A successful solve command does not prove that the original issue is resolved.
+5. A failed solve command means the attempted solution failed to execute or complete successfully. Do not automatically conclude that the original issue remains unresolved or that the hypothesis is contradicted.
+6. Determine `issue_resolved` independently of `solution_failed`. The attempted solution can fail while the original issue is already resolved, for example, if verification confirms that the problem no longer exists.
+7. Mark `hypothesis_contradicted` as true only when the supplied evidence conflicts with the current hypothesis. Missing evidence, command failures, and inconclusive verification do not by themselves contradict a hypothesis.
+8. Set `verification_inconclusive` to true when the verification command's output cannot reliably establish whether the original issue is resolved. This includes execution errors, timeouts, and checks that do not adequately test the reported problem.
+9. If verification conclusively establishes that the original issue is resolved, set `issue_resolved` to true. Otherwise, set it to false. Do not infer resolution from the solve command's success alone.
+10. Set `solution_failed` to true when the solve command failed to execute or complete successfully, based on its output and execution status. Otherwise, set it to false. Do not mark it as failed merely because the original issue remains unresolved.
+11. Set `failure_reason` to a concise, evidence-based explanation when `solution_failed` is true. Otherwise, set it to null.
+12. These Boolean fields are independent. Do not force `solution_failed` or `hypothesis_contradicted` to false merely because `issue_resolved` is true. Set each field according to its own evidence and definition.
+13. Keep `reason` concise. Explain the classification using the most relevant evidence from the solve and verification outputs.
+14. Do not propose commands, fixes, recommendations, or a new hypothesis.
+15. Return only valid JSON matching the provided schema. Do not include commentary or Markdown.
+
+## OUTPUT FIELD DEFINITIONS
+
+- `issue_resolved`: The evidence establishes that the original reported problem is resolved.
+- `solution_failed`: The attempted solve command failed to execute or complete successfully.
+- `failure_reason`: Why the solve command failed, or null if it did not fail.
+- `hypothesis_contradicted`: The evidence directly conflicts with the current hypothesis.
+- `verification_inconclusive`: The verification evidence is insufficient or unreliable for determining whether the original issue is resolved.
+- `reason`: A concise explanation of the overall classification."""
 }
 
 
@@ -1562,13 +1580,13 @@ class InvestigationState:
         return content
     def generateHypothesis(self, user_request, model_name, facts=None,command_outputs=[]):
             # This function generates a hypothesis based on the user request
-            msg=[{"role": "system", "content": STATE_PROMPTS["updatehypothesis"] if facts else STATE_PROMPTS["hypothesis"]},
+            msg=[{"role": "system", "content": STATE_PROMPTS["updatehypothesis"] if facts is not None else STATE_PROMPTS["hypothesis"]},
                  {"role": "system", "content":f"Facts:{facts}, list of commands executed previously: {command_outputs}"},
                  {"role": "user", "content": str(user_request).strip()}]
             response = self._stream_chat_response(
                                 model=model_name,
                                 messages=msg,
-                                format=hypothesis_schema if facts else hypothesis_schema1,
+                                format=hypothesis_schema if facts is not None else hypothesis_schema1,
                                 think=False,
                                 keep_alive=-1,
                                 options = {
@@ -1647,7 +1665,7 @@ class InvestigationState:
         msg = [
             {
                 "role": "system",
-                "content": f"{STATE_PROMPTS['facts'] if command_outputs else STATE_PROMPTS['updatefacts']}"
+                "content": f"{STATE_PROMPTS['facts'] if command_outputs is not None else STATE_PROMPTS['updatefacts']}"
             },
             {
                 "role": "system",
@@ -1688,6 +1706,7 @@ class InvestigationState:
             relevant_command_outputs=[],
             model_name=[],
             verification="",
+            failure_reason="",
         ):
             facts = facts or []
             relevant_command_outputs = relevant_command_outputs or []
@@ -1765,11 +1784,13 @@ If RAG contains no useful result:
 Solve the problem using the confirmed hypothesis and verified facts.
    ###rag output= 
                     previous: verification: {verification}
+
         """
                 },
                 {
                     "role": "user",
-                    "content": f" this is the problem:{str(hypothesis)}. generate a command to solve / fix this problem."
+
+                    "content": f" this is the problem:{str(hypothesis)}. generate a command to solve / fix this problem.  this is the reasone why the previous soloution failed {failure_reason}"
                 }
             ]
     

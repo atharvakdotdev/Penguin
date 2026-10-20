@@ -39,9 +39,6 @@ analyse_result_scheme = {
         "hypothesis_contradicted": {
             "type": "boolean"
         },
-        "verification_inconclusive": {
-            "type": "boolean"
-        },
         "reason": {
             "type": "string"
         }
